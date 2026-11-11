@@ -151,3 +151,34 @@ fun Activity.scrollPage(content: View): ScrollView {
 fun Context.sectionTitle(s: String) = text(s, 21f, C.FG, bold = true).apply {
     layoutParams = lp().also { it.setMargins(0, dp(24), 0, dp(8)) }
 }
+
+/**
+ * 픽업 1km당 분 빠른 고르기: [1분] [2분] [3분] [5분]. 고른 칸은 파랗게.
+ * onChange 는 고른 뒤 (화면 다시 그리기 등)
+ */
+fun Context.pickupChips(store: Store, onChange: () -> Unit): LinearLayout {
+    val row = hbox()
+    val choices = listOf(1.0, 2.0, 3.0, 5.0)
+    fun paint() {
+        for (i in 0 until row.childCount) {
+            val v = row.getChildAt(i) as TextView
+            val on = choices[i] == store.pickupMinPerKm
+            v.setTextColor(if (on) C.FG else C.ACCENT)
+            v.background = roundBg(if (on) C.BTN else C.PANEL, C.BTN, 2, 10)
+        }
+    }
+    for (m in choices) {
+        row.addView(text("${Store.plain(m)}분", 18f, C.ACCENT, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(10))
+            setOnClickListener {
+                store.pickupMinPerKm = m
+                paint()
+                CallReaderService.instance?.settingsChanged()
+                onChange()
+            }
+        }, lp(0, weight = 1f).also { it.setMargins(dp(3), 0, dp(3), 0) })
+    }
+    paint()
+    return row
+}

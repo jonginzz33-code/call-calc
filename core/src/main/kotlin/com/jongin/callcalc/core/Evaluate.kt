@@ -14,7 +14,11 @@ data class RegionWord(val word: String, val color: RegionColor, val memo: String
 data class Formula(val id: String, val name: String, val expr: String)
 
 object Defaults {
+    const val PER_MINUTE_ID = "perMinute"
+    const val PICKUP_MIN_PER_KM = 2.0
+
     val formulas = listOf(
+        Formula(PER_MINUTE_ID, "1분당 금액 (픽업 포함)", "C / (P + B)"),
         Formula("default1", "금액 ÷ (거리 + 시간)", "C / (A + B)"),
         Formula("default2", "금액 ÷ 시간", "C / B"),
         Formula("default3", "금액 ÷ 거리", "C / A"),
@@ -23,6 +27,7 @@ object Defaults {
 
 data class EvalSettings(
     val formulaExpr: String = Defaults.formulas[0].expr,
+    val pickupMinPerKm: Double = Defaults.PICKUP_MIN_PER_KM, // 픽업 1km당 몇 분
     val threshold: Double? = null,       // 기준 단가. null 이면 안 씀
     val minPrice: Double? = null,        // 최소 금액. null 이면 꺼짐
     val words: List<RegionWord> = emptyList(),
@@ -64,6 +69,13 @@ object RegionJudge {
     }
 }
 
+/** 픽업 시간(분) = 픽업 거리 × 1km당 분, 반올림. 8.4km × 2분 = 16.8 → 17 */
+fun pickupMinutes(a: Double, minPerKm: Double): Double = Math.round(a * minPerKm).toDouble()
+
+/** 계산식에 넣을 변수들 */
+fun vars(a: Double, b: Double, c: Double, minPerKm: Double): Map<Char, Double> =
+    mapOf('A' to a, 'B' to b, 'C' to c, 'P' to pickupMinutes(a, minPerKm))
+
 object Evaluator {
     fun evaluate(rows: List<CallRow>, s: EvalSettings): EvalOutput {
         val expr = try { Expr.parse(s.formulaExpr) } catch (e: ExprError) { null }
@@ -78,7 +90,7 @@ object Evaluator {
             val status = when {
                 !r.complete -> RowStatus.READ_FAIL
                 expr == null -> RowStatus.IMPOSSIBLE
-                else -> when (val res = expr.eval(mapOf('A' to r.a!!, 'B' to r.b!!, 'C' to r.c!!))) {
+                else -> when (val res = expr.eval(vars(r.a!!, r.b!!, r.c!!, s.pickupMinPerKm))) {
                     is CalcResult.Value -> {
                         value = res.v
                         if (s.threshold != null && res.v < s.threshold) RowStatus.BELOW else RowStatus.OK

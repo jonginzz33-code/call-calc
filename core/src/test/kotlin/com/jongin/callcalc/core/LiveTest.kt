@@ -34,23 +34,23 @@ class LiveTest {
         val rows = CallParser.parse(Sample.screen())
         val mem = SeenMemory()
         // 처음 화면: 1번, 3번 콜이 보임 → 최고는 3번(736)
-        val (o1, s1) = mem.evaluate(listOf(rows[0], rows[2]), EvalSettings())
+        val (o1, s1) = mem.evaluate(listOf(rows[0], rows[2]), EvalSettings(formulaExpr = "C / (A + B)"))
         assertEquals(listOf(false, true), o1.rows.map { it.best })
         assertEquals("최고: 초지동 12,000 (736)", s1)
         // 스크롤 후: 2번만 보임 → 전체 최고는 여전히 3번이라 별표 없음
-        val (o2, s2) = mem.evaluate(listOf(rows[1]), EvalSettings())
+        val (o2, s2) = mem.evaluate(listOf(rows[1]), EvalSettings(formulaExpr = "C / (A + B)"))
         assertEquals(listOf(false), o2.rows.map { it.best })
         assertEquals("최고: 초지동 12,000 (736)", s2)
         assertEquals(3, mem.size)
         mem.clear()
-        val (_, s3) = mem.evaluate(emptyList(), EvalSettings())
+        val (_, s3) = mem.evaluate(emptyList(), EvalSettings(formulaExpr = "C / (A + B)"))
         assertNull(s3)
     }
 
     @Test fun seenMemorySkipsRedRegion() {
         val rows = CallParser.parse(Sample.screen())
         val mem = SeenMemory()
-        val s = EvalSettings(words = listOf(RegionWord("안산", RegionColor.RED)))
+        val s = EvalSettings(formulaExpr = "C / (A + B)", words = listOf(RegionWord("안산", RegionColor.RED)))
         val (_, summary) = mem.evaluate(rows, s)
         assertTrue(summary!!.startsWith("최고: 심곡동"), summary)
     }

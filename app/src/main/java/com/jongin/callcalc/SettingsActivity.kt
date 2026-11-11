@@ -67,10 +67,30 @@ class SettingsActivity : AppCompatActivity() {
 
         // ── 계산식 ──
         root.addView(sectionTitle("계산식"))
-        root.addView(text("A = 거리(km), B = 시간(분), C = 금액(원)\n줄을 누르면 그 식을 써요.", 15f, C.DIM))
+        root.addView(text("A = 픽업 거리(km), B = 운행 시간(분), C = 금액(원)\nP = 픽업 시간(분) = A × 1km당 분, 반올림\n줄을 누르면 그 식을 써요.", 15f, C.DIM))
         formulaBox = vbox()
         root.addView(formulaBox, lp().also { it.topMargin = dp(6) })
         root.addView(dashedButton("+ 식 추가") { editFormula(null) })
+
+        // 픽업 1km당 분 (시간대마다 다름)
+        root.addView(text("픽업 1km당 몇 분", 18f, bold = true).margins(this, top = 16))
+        root.addView(text("예: 8.4km × 2분 = 16.8 → 17분. 시간대마다 바꿔 쓰세요. (메인 화면에서도 바꿀 수 있어요)", 15f, C.DIM))
+        lateinit var pickupField: EditText
+        val chips = pickupChips(store) { pickupField.setText(Store.plain(store.pickupMinPerKm)) }
+        root.addView(chips.margins(this, top = 8))
+        pickupField = numberField("직접 입력 (예: 2.5)", store.pickupMinPerKm) { v ->
+            if (v != null && v > 0) {
+                store.pickupMinPerKm = v
+                // 빠른 버튼 색 다시 칠하기
+                for (i in 0 until chips.childCount) {
+                    val t = chips.getChildAt(i) as android.widget.TextView
+                    val on = t.text.toString().removeSuffix("분").toDoubleOrNull() == v
+                    t.setTextColor(if (on) C.FG else C.ACCENT)
+                    t.background = roundBg(if (on) C.BTN else C.PANEL, C.BTN, 2, 10)
+                }
+            }
+        }
+        root.addView(pickupField)
         root.addView(text("기본값으로 되돌리기", 15f, C.ACCENT).apply {
             setPadding(0, dp(12), 0, dp(4))
             setOnClickListener { confirmResetFormulas() }
@@ -257,7 +277,7 @@ class SettingsActivity : AppCompatActivity() {
         box.addView(expr.margins(this, top = 8))
 
         // 자주 쓰는 글자 넣기 버튼
-        val keys = listOf("A", "B", "C", "+", "−", "×", "÷", "(", ")")
+        val keys = listOf("A", "B", "C", "P", "+", "−", "×", "÷", "(", ")")
         val keyRow = hbox().apply { margins(this@SettingsActivity, top = 6) }
         for (k in keys) {
             keyRow.addView(text(k, 18f, C.ACCENT, bold = true).apply {
@@ -281,7 +301,7 @@ class SettingsActivity : AppCompatActivity() {
             val src = expr.text.toString()
             return try {
                 val e = Expr.parse(src)
-                val res = e.eval(mapOf('A' to sample.a!!, 'B' to sample.b!!, 'C' to sample.c!!))
+                val res = e.eval(com.jongin.callcalc.core.vars(sample.a!!, sample.b!!, sample.c!!, store.pickupMinPerKm))
                 check.setTextColor(C.GOOD)
                 check.text = "✓ 올바른 식이에요. 예시 1번 콜(4.1km, 72분, 24,000원) → " +
                     (if (res is CalcResult.Value) formatNumber(res.v) else "계산 불가")

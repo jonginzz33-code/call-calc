@@ -187,6 +187,9 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { chooseFormula() }
         }
         root.addView(formulaView.margins(this, top = 12))
+        // 픽업 1km당 분 빠른 바꾸기 (시간대마다)
+        root.addView(text("픽업 1km당", 15f, C.DIM).margins(this, top = 10))
+        root.addView(pickupChips(store) { showFormula(); if (hasResult) render() }.margins(this, top = 4))
         infoView = text("", 16f, C.SUB).apply { margins(this@MainActivity, top = 10) }
         root.addView(infoView)
 
@@ -315,6 +318,7 @@ class MainActivity : AppCompatActivity() {
             append("   바꾸기 ▾")
         }
         val parts = mutableListOf<String>()
+        parts += "픽업 1km=${Store.plain(store.pickupMinPerKm)}분"
         parts += "기준 단가 " + (store.threshold?.let { formatNumber(it) } ?: "없음")
         if (store.minPriceOn && store.minPrice != null) parts += "최소 " + formatNumber(store.minPrice!!) + "원"
         parts += "지역 단어 ${store.words.size}개"

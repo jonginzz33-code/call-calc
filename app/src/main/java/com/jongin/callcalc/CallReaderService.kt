@@ -236,7 +236,7 @@ class CallReaderService : AccessibilityService() {
         val s = store.evalSettings()
         val (out, summary) = if (store.bestAllSeen) memory.evaluate(rows, s) else Evaluator.evaluate(rows, s) to null
         val calcMs = (SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000
-        val parts = mutableListOf(MainActivity.pretty(store.selectedFormula.expr))
+        val parts = mutableListOf(MainActivity.pretty(store.selectedFormula.expr) + " (픽업 1km=${Store.plain(store.pickupMinPerKm)}분)")
         if (summary != null) parts += summary
         if (store.showSpeed && readMs >= 0) parts += "⏱ ${readMs + calcMs}ms"
         if (note != null) parts += note

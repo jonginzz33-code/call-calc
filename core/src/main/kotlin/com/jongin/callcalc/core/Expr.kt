@@ -1,7 +1,7 @@
 package com.jongin.callcalc.core
 
 /**
- * 계산식 파서. 변수 A(거리), B(시간), C(금액), 숫자, + - * / × ÷, 괄호를 지원한다.
+ * 계산식 파서. 변수 A(픽업 거리 km), B(운행 시간 분), C(금액), P(픽업 시간 분 = A × 1km당 분, 반올림), 숫자, + - * / × ÷, 괄호를 지원한다.
  * 외부 라이브러리 없이 재귀 하향 방식으로 만든다.
  *
  *   식   := 항 (('+' | '-') 항)*
@@ -22,7 +22,7 @@ sealed class Expr {
     data class Neg(val e: Expr) : Expr()
     data class Bin(val op: Char, val l: Expr, val r: Expr) : Expr()
 
-    /** vars: 'A','B','C' → 값. 0으로 나누거나 결과가 숫자가 아니면 Impossible */
+    /** vars: 'A','B','C','P' → 값. 0으로 나누거나 결과가 숫자가 아니면 Impossible */
     fun eval(vars: Map<Char, Double>): CalcResult {
         val v = evalRaw(vars) ?: return CalcResult.Impossible
         return if (v.isNaN() || v.isInfinite()) CalcResult.Impossible else CalcResult.Value(v)
@@ -50,7 +50,7 @@ sealed class Expr {
         fun normalize(src: String): String = src
             .replace('×', '*').replace('x', '*').replace('X', '*').replace('÷', '/')
             .replace('（', '(').replace('）', ')')
-            .replace('a', 'A').replace('b', 'B').replace('c', 'C')
+            .replace('a', 'A').replace('b', 'B').replace('c', 'C').replace('p', 'P')
 
         /** 식을 해석한다. 잘못된 식이면 ExprError(한국어 설명)를 던진다 */
         fun parse(src: String): Expr {
@@ -110,11 +110,11 @@ private class Parser(val s: String) {
                 i++
                 e
             }
-            c == 'A' || c == 'B' || c == 'C' -> { i++; Expr.Var(c) }
+            c == 'A' || c == 'B' || c == 'C' || c == 'P' -> { i++; Expr.Var(c) }
             c.isDigit() || c == '.' -> number()
             c == ')' -> throw ExprError("여는 괄호 없이 ')'가 나왔어요")
             c == '*' || c == '/' -> throw ExprError("'${c}' 앞에 숫자나 변수가 필요해요")
-            else -> throw ExprError("'${c}'는 쓸 수 없어요. A, B, C, 숫자, + - × ÷, 괄호만 돼요")
+            else -> throw ExprError("'${c}'는 쓸 수 없어요. A, B, C, P, 숫자, + - × ÷, 괄호만 돼요")
         }
     }
 

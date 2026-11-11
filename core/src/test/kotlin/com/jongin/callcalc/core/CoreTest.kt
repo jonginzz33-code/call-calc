@@ -33,6 +33,7 @@ class ExprTest {
         }
         assertNull(Expr.validate("C / (A + B)"))
         assertNull(Expr.validate("C/(A+B)*1.5 - 100"))
+        assertNull(Expr.validate("c ÷ (p + b)"))
     }
 }
 
@@ -108,6 +109,26 @@ class EvaluatorTest {
     private fun values(expr: String) =
         Evaluator.evaluate(rows, EvalSettings(formulaExpr = expr)).rows.map { it.value!!.roundToLong() }
 
+    @Test fun perMinuteDefault() {
+        // 기본 식: 1분당 금액 = C / (P + B), P = 픽업 거리 × 2분 (반올림)
+        assertEquals("C / (P + B)", EvalSettings().formulaExpr)
+        // 사용자 화면: 8.4km(→17분) + 28분, 16,000원 → 16000 / 45 = 356
+        val screen = listOf(
+            TextItem("8.4km", 52, 425, 180, 470), TextItem("시흥시 배곧동 배곧동 …", 297, 415, 700, 462),
+            TextItem("16,000", 732, 418, 870, 462), TextItem("고잔동", 52, 480, 163, 525),
+            TextItem("오픈콜", 297, 480, 410, 525), TextItem("28분", 445, 480, 530, 525), TextItem("현금", 797, 480, 870, 525),
+        )
+        val one = Evaluator.evaluate(CallParser.parse(screen), EvalSettings()).rows.single()
+        assertEquals("356", one.valueText)
+        // 예시 3줄: 픽업 8, 18, 11분
+        assertEquals(listOf(300L, 356L, 545L), Evaluator.evaluate(rows, EvalSettings()).rows.map { it.value!!.roundToLong() })
+        // 픽업 1km당 1분 / 5분
+        assertEquals(listOf(316L, 415L, 750L), Evaluator.evaluate(rows, EvalSettings(pickupMinPerKm = 1.0)).rows.map { it.value!!.roundToLong() })
+        assertEquals(listOf(258L, 252L, 316L), Evaluator.evaluate(rows, EvalSettings(pickupMinPerKm = 5.0)).rows.map { it.value!!.roundToLong() })
+        assertEquals(17.0, pickupMinutes(8.4, 2.0))
+        assertEquals(9.0, pickupMinutes(4.5, 2.0))
+    }
+
     @Test fun expectedResultsFromSpec() {
         assertEquals(listOf(315L, 416L, 736L), values("C / (A + B)"))
         assertEquals(listOf(333L, 498L, 1091L), values("C / B"))
@@ -122,7 +143,7 @@ class EvaluatorTest {
             RegionWord("부천", RegionColor.YELLOW),
             RegionWord("심곡동", RegionColor.GREEN),
         )
-        val out = Evaluator.evaluate(rows, EvalSettings(threshold = 400.0, words = words)).rows
+        val out = Evaluator.evaluate(rows, EvalSettings(formulaExpr = "C / (A + B)", threshold = 400.0, words = words)).rows
         // 3번(안산, 736)이 최고지만 빨강이라 제외 → 2번(416)이 제일 좋음
         assertEquals(listOf(false, true, false), out.map { it.best })
         assertEquals(listOf(RowStatus.BELOW, RowStatus.OK, RowStatus.OK), out.map { it.status })
@@ -130,7 +151,7 @@ class EvaluatorTest {
         assertEquals(2, out[1].matched.size) // 부천 + 심곡동, 노랑이 먼저
         assertEquals("736", out[2].valueText) // 기본: 보여 주고 경고
 
-        val hidden = Evaluator.evaluate(rows, EvalSettings(words = words, hideRedValue = true)).rows
+        val hidden = Evaluator.evaluate(rows, EvalSettings(formulaExpr = "C / (A + B)", words = words, hideRedValue = true)).rows
         assertEquals("—", hidden[2].valueText)
     }
 
