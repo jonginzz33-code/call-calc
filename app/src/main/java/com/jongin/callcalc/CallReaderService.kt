@@ -175,6 +175,8 @@ class CallReaderService : AccessibilityService() {
     private fun hideLabels() {
         overlay.hideLabels()
         overlayVisible = false
+        shownSig = null
+        candSig = null; candTries = 0; cand = null
     }
 
     private var dueAt = 0L
@@ -261,7 +263,7 @@ class CallReaderService : AccessibilityService() {
                         show(rows, res.ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (화면 캡처)" else null)
                     }
                 }
-                res is CaptureService.Result.Unchanged -> lastShown?.let { (out, banner) ->
+                res is CaptureService.Result.Unchanged -> if (!confirmPending()) lastShown?.let { (out, banner) ->
                     if (store.overlayOn && !overlayVisible) { overlay.showLabels(out.rows, banner); overlayVisible = true }
                 }
                 res is CaptureService.Result.Black ->
@@ -292,7 +294,45 @@ class CallReaderService : AccessibilityService() {
         return if (id > 0) resources.getDimensionPixelSize(id) else 0
     }
 
+    // ── 한꺼번에 표시 ──
+    // 읽을 때마다 바로 바꾸면 콜이 하나씩 붙는 것처럼 보여서,
+    // 같은 결과가 두 번 연속 나와 "확정"됐을 때만 표시를 바꾼다. 그 전엔 이전 표시를 그대로 둔다.
+    private var shownSig: String? = null
+    private var candSig: String? = null
+    private var candTries = 0
+    private var cand: Triple<List<CallRow>, Long, String?>? = null
+
+    /** 콜 목록 지문: 어떤 콜이 어느 높이에 있는지 */
+    private fun signature(rows: List<CallRow>) = rows.joinToString(";") { "${it.key}@${it.top / 24}" }
+
+    /** 이번 읽기 결과를 받아서, 확정됐으면 표시 */
     private fun show(rows: List<CallRow>, readMs: Long, note: String?) {
+        val sig = signature(rows)
+        val visible = overlayVisible && shownSig == sig
+        if (rows.isNotEmpty() && !visible) {
+            if (sig != candSig) {
+                candTries++
+                candSig = sig
+                cand = Triple(rows, readMs, note)
+                // 세 번 연속 다르게 읽히면 더 기다리지 않고 마지막 결과를 보여 줌
+                if (candTries < 3) { schedule(CONFIRM_DELAY); return }
+            }
+        }
+        candSig = null; candTries = 0; cand = null
+        shownSig = sig
+        display(rows, readMs, note)
+    }
+
+    /** 화면이 그대로라 OCR 을 건너뛴 경우 = 지난 결과가 확정된 것 */
+    private fun confirmPending(): Boolean {
+        val (rows, ms, note) = cand ?: return false
+        candSig = null; candTries = 0; cand = null
+        shownSig = signature(rows)
+        display(rows, ms, note)
+        return true
+    }
+
+    private fun display(rows: List<CallRow>, readMs: Long, note: String?) {
         if (!store.overlayOn) { hideLabels(); return }
         val t0 = SystemClock.elapsedRealtimeNanos()
         val s = store.evalSettings()
@@ -358,6 +398,7 @@ class CallReaderService : AccessibilityService() {
         private const val OCR_POLL = 500L        // 화면 캡처 방식 확인 간격
         private const val SCROLL_SETTLE = 250L   // 스크롤이 멈췄다고 보는 시간
         private const val TOUCH_DELAY = 150L     // 화면을 만진 뒤 읽기까지
+        private const val CONFIRM_DELAY = 80L    // 확정하려고 한 번 더 읽기까지
         private const val TOUCH_FOLLOW_UP = 600L // 만진 뒤 한 번 더 확인
         @Volatile var instance: CallReaderService? = null
     }
