@@ -97,7 +97,7 @@ object KakaoRoute {
     fun pickup(ctx: Context, detail: CallDetail, key: String, done: (Pickup?, String?) -> Unit) {
         val app = ctx.applicationContext
         pool.execute {
-            val out: Result<Pickup> = runCatching {
+            val out: kotlin.Result<Pickup> = runCatching {
                 val loc = currentLocation(app)
                 val me = loc?.let { Point(it.longitude, it.latitude, "내 위치") }
                 // 키가 없거나, 위치를 못 잡으면 → 콜 앱이 보여 준 직선 거리로 추정만
