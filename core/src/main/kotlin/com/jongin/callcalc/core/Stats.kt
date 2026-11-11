@@ -190,7 +190,9 @@ object DetailParser {
      *  → [전체, "수원시 권선구 호매실동", "수원시 권선구", ...] 
      */
     fun searchQueries(place: String): List<String> {
-        val words = place.split(' ').filter { it.isNotBlank() }
+        // 아파트 동·호수, 층, "근처", 말줄임은 빼고 찾기 (내비가 "114동"까지 붙이면 못 찾음)
+        val skip = Regex("""^(\d+[-]?\d*(동|호|층)|근처|…|\.\.\.)$""")
+        val words = place.replace("…", " ").split(' ').filter { it.isNotBlank() && !skip.matches(it) }
         val out = LinkedHashSet<String>()
         out += words.joinToString(" ")
         for (n in words.size - 1 downTo 1) out += words.take(n).joinToString(" ")

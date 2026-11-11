@@ -160,7 +160,17 @@ object CallCheck {
         return if (dist < 0 || time < 0) null else dist to time
     }
 
-    private fun request(url: String, key: String, body: String?): JSONObject? {
+    /** 403·429 는 잠깐 뒤 한 번 더 (동시에 여러 번 부르면 순간적으로 막힐 수 있어서) */
+    private fun request(url: String, key: String, body: String?): JSONObject? = try {
+        requestOnce(url, key, body)
+    } catch (e: Retry) {
+        Thread.sleep(400)
+        try { requestOnce(url, key, body) } catch (e2: Retry) { throw Problem(e2.message ?: "TMAP 거부") }
+    }
+
+    private class Retry(msg: String) : Exception(msg)
+
+    private fun requestOnce(url: String, key: String, body: String?): JSONObject? {
         val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 4000
@@ -176,11 +186,12 @@ object CallCheck {
             return when (val code = c.responseCode) {
                 200 -> JSONObject(c.inputStream.bufferedReader().readText())
                 204 -> null
-                401, 403 -> throw Problem("TMAP 키 거부 (HTTP $code)")
-                429 -> throw Problem("오늘 TMAP 무료 사용량 끝 (HTTP 429)")
-                else -> throw Problem("TMAP 오류 (HTTP $code)")
+                401, 403, 429 -> throw Retry("TMAP 거부 (HTTP $code${errorMessage(c)})")
+                else -> throw Problem("TMAP 오류 (HTTP $code${errorMessage(c)})")
             }
         } catch (e: Problem) {
+            throw e
+        } catch (e: Retry) {
             throw e
         } catch (e: Exception) {
             throw Problem("인터넷 연결 확인")
@@ -188,6 +199,15 @@ object CallCheck {
             c.disconnect()
         }
     }
+
+    /** TMAP 이 보낸 오류 설명 (원인을 알 수 있게 짧게) */
+    private fun errorMessage(c: HttpURLConnection): String = runCatching {
+        val t = c.errorStream?.bufferedReader()?.readText().orEmpty()
+        val j = JSONObject(t)
+        val e = j.optJSONObject("error") ?: j
+        val msg = listOf(e.optString("code"), e.optString("message")).filter { it.isNotBlank() }.joinToString(" ")
+        if (msg.isBlank()) "" else " · " + msg.take(80)
+    }.getOrDefault("")
 
     fun distanceKm(a: Point, b: Point): Double {
         val r = 6371.0

@@ -128,6 +128,15 @@ class DetailTest {
         assertNull(DetailParser.parse(Sample.screen()))
     }
 
+    @Test fun apartmentBuildingNumberIsDropped() {
+        assertEquals("남양주시 호평동 호평동양파라곤아파트",
+            DetailParser.searchQueries("남양주시 호평동 호평동양파라곤아파트 114동").first())
+        assertEquals("수원시 권선구 호매실동 호매실동 호매실로166번길",
+            DetailParser.searchQueries("수원시 권선구 호매실동 호매실동 호매실로166번길 근처").first())
+        // 동 이름(호평동)은 그대로
+        assertTrue(DetailParser.searchQueries("남양주시 호평동").first().contains("호평동"))
+    }
+
     @Test fun searchGetsShorter() {
         assertEquals(
             listOf("수원시 권선구 호매실동 호매실능실마을19단지아파트", "수원시 권선구 호매실동", "수원시 권선구", "수원시"),
