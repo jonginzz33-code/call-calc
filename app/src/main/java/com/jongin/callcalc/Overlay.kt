@@ -412,9 +412,9 @@ class Overlay(
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             alpha = 0.9f
-            // 처음 위치: [콜 ON] 처음 자리(아래 가운데)의 왼쪽
-            x = if (store.checkX >= 0) store.checkX else ((dm.widthPixels - size) / 2 - size - dp(12)).coerceAtLeast(0)
-            y = if (store.checkY >= 0) store.checkY else dm.heightPixels - size - navBarHeight() - dp(24)
+            // 처음 위치: 왼쪽 맨 위 (상태바 바로 아래)
+            x = if (store.checkX >= 0) store.checkX else dp(8)
+            y = if (store.checkY >= 0) store.checkY else statusBarHeight() + dp(8)
         }
         // 톡 = 콜 확인, 끌기 = 이동 (위치 따로 기억)
         val slop = ViewConfiguration.get(svc).scaledTouchSlop

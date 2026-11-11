@@ -114,8 +114,21 @@ object DetailParser {
     private val rideRe = Regex("""약?\s*(\d+)\s*분\s*운행""")
     private val stopWords = listOf("닫기", "콜 수락하기", "수락하기", "콜수락하기")
 
+    /** 글자 인식이 "출발 선부동 선부3동주민센터"처럼 붙여 읽으면 "출발" 칸과 주소 칸으로 나눈다 */
+    private fun splitLabels(items: List<TextItem>): List<TextItem> = items.flatMap { t ->
+        val m = Regex("""^\s*(출발|도착|이동)\s+(.+)$""").find(t.text) ?: return@flatMap listOf(t)
+        val label = m.groupValues[1]
+        val rest = m.groupValues[2]
+        val total = t.text.trim().length.coerceAtLeast(1)
+        val cut = t.left + (t.right - t.left) * label.length / total
+        listOf(
+            TextItem(label, t.left, t.top, cut - 1, t.bottom),
+            TextItem(rest, cut, t.top, t.right, t.bottom),
+        )
+    }
+
     fun parse(raw: List<TextItem>): CallDetail? {
-        val items = raw.filter { it.text.isNotBlank() }
+        val items = splitLabels(raw.filter { it.text.isNotBlank() })
         if (items.none { it.text.replace(" ", "").contains("수락") }) return null
         fun label(name: String) = items.filter { it.text.trim() == name }.minByOrNull { it.left }
         val start = label("출발")

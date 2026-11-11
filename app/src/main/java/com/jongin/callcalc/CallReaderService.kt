@@ -469,8 +469,13 @@ class CallReaderService : AccessibilityService() {
             ), null, C.FG)
             return
         }
-        overlay.showResult("콜 확인 · 화면 읽는 중…", emptyList(), null, C.FG)
+        // 결과 창이 떠 있으면 먼저 내리고 찍는다 (창이 출발·도착 글자를 가리면 못 읽음)
+        overlay.hideResult()
         cap.forgetLast() // 같은 화면이어도 새로 글자 인식
+        handler.postDelayed({ captureDetail(cap) }, 80)
+    }
+
+    private fun captureDetail(cap: CaptureService) {
         cap.captureAndRead(overlay.ownRects(), cap.defaultCrop(statusBarHeight())) { res ->
             val items = (res as? CaptureService.Result.Items)?.items ?: lastItems
             val d = DetailParser.parse(items)

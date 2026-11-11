@@ -263,7 +263,7 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         // 버튼 위치
-        root.addView(button("버튼 위치 처음으로 (콜 ON 아래 가운데, 콜 확인 그 왼쪽)", outlined = true) {
+        root.addView(button("버튼 위치 처음으로 (콜 ON 아래 가운데, 콜 확인 왼쪽 맨 위)", outlined = true) {
             store.resetBubble()
             CallReaderService.instance?.resetBubble()
             android.widget.Toast.makeText(this, "버튼을 아래 가운데로 옮겼어요", android.widget.Toast.LENGTH_SHORT).show()

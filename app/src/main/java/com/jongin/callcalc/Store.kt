@@ -252,6 +252,10 @@ class Store(context: Context) {
     )
 
     init {
+        // v0.6.3: [콜 확인] 처음 위치가 왼쪽 맨 위로 바뀌어서, 저장된 위치를 한 번 지움
+        if (!p.getBoolean("checkResetV063", false)) {
+            p.edit().putBoolean("checkResetV063", true).putInt("checkX", -1).putInt("checkY", -1).apply()
+        }
         // v0.5.0: 버튼 처음 위치가 아래 가운데로 바뀌어서, 저장된 위치를 한 번 지움
         if (!p.getBoolean("bubbleResetV050", false)) {
             p.edit().putBoolean("bubbleResetV050", true).putInt("bubbleX", -1).putInt("bubbleY", -1).apply()

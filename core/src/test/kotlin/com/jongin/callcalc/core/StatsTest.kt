@@ -85,6 +85,26 @@ class DetailTest {
         assertEquals(5.4, d.pickupKm)
     }
 
+    @Test fun readsMergedLabelLines() {
+        // 글자 인식이 "출발 + 주소"를 한 줄로 붙여 읽은 경우 (사용자 화면)
+        val items = listOf(
+            TextItem("현금", 222, 945, 300, 985), TextItem("실수익", 222, 995, 302, 1030),
+            TextItem("16,000", 340, 870, 625, 955),
+            TextItem("이동 도보 44분 약 3.5km", 220, 1090, 810, 1150),
+            TextItem("출발 선부동 선부3동주민센터", 220, 1225, 900, 1285),
+            TextItem("약 27분 운행", 340, 1340, 605, 1395),
+            TextItem("도착 안양시 만안구 박달동 박달동", 220, 1450, 1000, 1508),
+            TextItem("대림한숲타운아파트", 340, 1520, 800, 1578),
+            TextItem("닫기", 300, 1715, 390, 1770), TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        val d = assertNotNull(DetailParser.parse(items))
+        assertEquals(16000.0, d.price)
+        assertEquals("선부동 선부3동주민센터", d.origin)
+        assertEquals("안양시 만안구 박달동 박달동 대림한숲타운아파트", d.destination)
+        assertEquals(27.0, d.rideMin)
+        assertEquals(3.5, d.pickupKm)
+    }
+
     @Test fun readsStackedDetail() {
         // 두 번째 모양: 사용자가 보낸 화면 1
         val a = listOf(
