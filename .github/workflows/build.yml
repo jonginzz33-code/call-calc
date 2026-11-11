@@ -6,6 +6,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# 릴리스(앱 자동 업데이트용)를 만들려면 쓰기 권한이 필요
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,10 +33,26 @@ jobs:
           VN=$(grep -oE '^## v[0-9][0-9.]*' README.md | tail -1 | sed 's/## //')
           mkdir -p out
           cp app/build/outputs/apk/debug/*.apk "out/call-calc-$VN.apk"
+          cp app/build/outputs/apk/debug/*.apk release-call-calc.apk
           echo "VN=$VN" >> "$GITHUB_ENV"
+          # app/build.gradle.kts 의 versionCode 와 같은 계산 (빌드 번호 + 1)
+          echo "VC=$((GITHUB_RUN_NUMBER + 1))" >> "$GITHUB_ENV"
           ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
           name: call-calc-${{ env.VN }}
           path: out/*.apk
+
+      # 앱이 이 릴리스를 보고 새 버전인지 판단해서 스스로 업데이트함 (파일 이름 고정: call-calc.apk)
+      - name: Rename for release
+        run: mv release-call-calc.apk call-calc.apk
+
+      - name: Release (app auto-update)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ env.VC }}
+          name: ${{ env.VN }} (build ${{ env.VC }})
+          body: "versionCode=${{ env.VC }}"
+          make_latest: true
+          files: call-calc.apk

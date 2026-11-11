@@ -93,6 +93,18 @@ class SettingsActivity : AppCompatActivity() {
         })
         root.addView(speedRow)
 
+        // ── 업데이트 ──
+        root.addView(sectionTitle("업데이트"))
+        val upRow = hbox()
+        upRow.addView(text("앱을 켤 때 새 버전 자동 확인", 15f), lp(0, weight = 1f))
+        upRow.addView(MaterialSwitch(this).apply {
+            isChecked = store.autoUpdate
+            setOnCheckedChangeListener { _, on -> store.autoUpdate = on }
+        })
+        root.addView(upRow)
+        root.addView(button("지금 새 버전 확인", outlined = true) { Updater.check(this, quiet = false) })
+        root.addView(text("인터넷은 새 버전 확인과 받기에만 써요. 화면에서 읽은 콜 내용은 밖으로 보내지 않아요.", 13f, C.SUB))
+
         root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 12f, C.GRAY).margins(this, top = 24))
     }
 

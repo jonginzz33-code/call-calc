@@ -91,6 +91,11 @@ class Store(context: Context) {
         get() = p.getBoolean("showSpeed", true)
         set(v) = p.edit().putBoolean("showSpeed", v).apply()
 
+    /** 앱을 켤 때 새 버전 자동 확인 */
+    var autoUpdate: Boolean
+        get() = p.getBoolean("autoUpdate", true)
+        set(v) = p.edit().putBoolean("autoUpdate", v).apply()
+
     fun evalSettings() = EvalSettings(
         formulaExpr = selectedFormula.expr,
         threshold = threshold,

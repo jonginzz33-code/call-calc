@@ -2,9 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 읽은 내용을 밖으로 보내지 않음: 라이브러리가 넣는 인터넷 권한까지 지움 -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <!-- 인터넷은 새 버전 확인·받기(Updater.kt)에만 씀. 읽은 콜 내용은 밖으로 보내지 않음 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <!-- 받은 새 버전 설치 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -33,5 +35,16 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- 받은 업데이트 APK를 설치 화면에 넘겨주는 통로 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

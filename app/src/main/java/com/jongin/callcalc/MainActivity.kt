@@ -60,6 +60,8 @@ class MainActivity : AppCompatActivity() {
         store = Store(this)
         buildUi()
         handleShare(intent)
+        // 처음 켤 때만 조용히 새 버전 확인 (화면 회전 등으로 다시 만들어질 땐 안 함)
+        if (savedInstanceState == null && store.autoUpdate) Updater.check(this, quiet = true)
     }
 
     override fun onNewIntent(intent: Intent) {
