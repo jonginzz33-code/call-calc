@@ -31,9 +31,10 @@ import kotlin.math.abs
 class Overlay(
     private val svc: AccessibilityService,
     private val store: Store,
-    private val onLongPress: () -> Unit,
     private val onToggle: () -> Unit,
-    private val onScreenTouch: () -> Unit = {},
+    private val onScreenTouch: () -> Unit,
+    private val onClearMemory: () -> Unit,
+    private val onEditRegion: () -> Unit,
 ) {
     private val wm = svc.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -77,11 +78,13 @@ class Overlay(
 
     /** 설정이 바뀌면 창 투명도 다시 적용 */
     fun applySettings() {
+        bubble?.let { b -> bubbleParams?.let { p -> p.flags = bubbleFlags(); runCatching { wm.updateViewLayout(b, p) } } }
         val r = root ?: return
         val lp = r.layoutParams as WindowManager.LayoutParams
         lp.alpha = windowAlpha()
         runCatching { wm.updateViewLayout(r, lp) }
         updateBubbleLook()
+        bubble?.let { b -> bubbleParams?.let { p -> p.flags = bubbleFlags(); runCatching { wm.updateViewLayout(b, p) } } }
     }
 
     /**
@@ -113,12 +116,19 @@ class Overlay(
         labelViews.forEachIndexed { i, v ->
             val e = rows.getOrNull(i)
             if (e == null) { v.visibility = View.GONE; return@forEachIndexed }
+            val row = e.row
             style(v, e, textSp)
             v.visibility = View.VISIBLE
             v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+            // 빈자리가 좁으면 글자를 줄여서 맞춤 (최소 70%) → 옆 글자를 덜 가림
+            val room = row.slotRight - row.slotLeft - 2 * gap
+            if (v.measuredWidth > room && room > 0) {
+                val sp = maxOf(textSp * 0.7f, textSp * room / v.measuredWidth)
+                v.textSize = sp
+                v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+            }
             val w = v.measuredWidth
             val h = v.measuredHeight
-            val row = e.row
             // 빈자리 오른쪽에 붙이되, 자리가 좁으면 왼쪽 끝에서 시작
             var x = row.slotRight - w - gap
             if (x < row.slotLeft + gap) x = row.slotLeft + gap
@@ -200,6 +210,18 @@ class Overlay(
 
     // ───────── 둥근 버튼 ─────────
 
+    private fun bubbleFlags(): Int {
+        // FLAG_WATCH_OUTSIDE_TOUCH: 화면 어디를 만져도 "만졌다"는 신호만 받음 (위치는 모름, 터치는 그대로 아래 앱으로)
+        var f = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        // 감시하는 앱이 떠 있는 동안 (= 버튼이 떠 있는 동안) 화면이 저절로 꺼지지 않게
+        if (store.keepScreenOn) f = f or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        return f
+    }
+
+    /**
+     * 둥근 버튼: 한 번 톡 = 표시 켜기/끄기, 두 번 톡 또는 길게 = 메뉴, 끌기 = 이동(위치 저장)
+     */
     @SuppressLint("ClickableViewAccessibility")
     fun showBubble() {
         if (bubble != null) return
@@ -214,9 +236,7 @@ class Overlay(
         val lp = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            // FLAG_WATCH_OUTSIDE_TOUCH: 화면 어디를 만져도 "만졌다"는 신호만 받음 (위치는 모름, 터치는 그대로 아래 앱으로)
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            bubbleFlags(),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -227,22 +247,28 @@ class Overlay(
 
         val slop = ViewConfiguration.get(svc).scaledTouchSlop
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
-        var moved = false; var downAt = 0L
+        var moved = false; var longFired = false
+        var lastTapAt = 0L
+        val singleTap = Runnable {
+            store.overlayOn = !store.overlayOn
+            updateBubbleLook()
+            onToggle()
+        }
         val longPress = Runnable {
-            if (!moved) { moved = true; onLongPress() }
+            if (!moved) { longFired = true; showMenu() }
         }
         b.setOnTouchListener { v, ev ->
             when (ev.actionMasked) {
                 MotionEvent.ACTION_OUTSIDE -> { onScreenTouch(); return@setOnTouchListener false }
                 MotionEvent.ACTION_DOWN -> {
                     downX = ev.rawX; downY = ev.rawY; startX = lp.x; startY = lp.y
-                    moved = false; downAt = SystemClock.uptimeMillis()
-                    v.postDelayed(longPress, 700)
+                    moved = false; longFired = false
+                    v.postDelayed(longPress, 600)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = ev.rawX - downX; val dy = ev.rawY - downY
                     if (!moved && (abs(dx) > slop || abs(dy) > slop)) { moved = true; v.removeCallbacks(longPress) }
-                    if (moved && SystemClock.uptimeMillis() - downAt < 100000) {
+                    if (moved) {
                         lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
                         lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
                         runCatching { wm.updateViewLayout(v, lp) }
@@ -250,13 +276,20 @@ class Overlay(
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.removeCallbacks(longPress)
-                    if (!moved && ev.actionMasked == MotionEvent.ACTION_UP) {
-                        store.overlayOn = !store.overlayOn
-                        updateBubbleLook()
-                        onToggle()
-                    } else {
+                    if (moved) {
                         store.bubbleX = lp.x
                         store.bubbleY = lp.y
+                    } else if (!longFired && ev.actionMasked == MotionEvent.ACTION_UP) {
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastTapAt < 300) {
+                            // 두 번 톡 → 메뉴
+                            v.removeCallbacks(singleTap)
+                            lastTapAt = 0L
+                            showMenu()
+                        } else {
+                            lastTapAt = now
+                            v.postDelayed(singleTap, 300)
+                        }
                     }
                 }
             }
@@ -266,6 +299,197 @@ class Overlay(
         bubble = b
         bubbleParams = lp
         updateBubbleLook()
+    }
+
+    // ───────── 메뉴 ─────────
+
+    private var menu: View? = null
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showMenu() {
+        hideMenu()
+        val bp = bubbleParams ?: return
+        val box = svc.vbox(10).apply {
+            background = svc.roundBg(Color.parseColor("#F21E232B"), Color.parseColor("#4C8FE0"), 2, 14)
+        }
+        fun item(label: String, act: () -> Unit) = box.addView(svc.text(label, 17f, Color.WHITE, bold = true).apply {
+            setPadding(dp(14), dp(12), dp(20), dp(12))
+            setOnClickListener { hideMenu(); act() }
+        })
+        item("▢  읽을 영역 정하기") { onEditRegion() }
+        item("🧹  기억한 콜 지우기") { onClearMemory() }
+        item(if (store.overlayOn) "🙈  표시 끄기" else "👁  표시 켜기") {
+            store.overlayOn = !store.overlayOn
+            updateBubbleLook()
+            onToggle()
+        }
+        item("✕  닫기") {}
+        box.setOnTouchListener { _, ev ->
+            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) hideMenu()
+            false
+        }
+        box.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val dm = svc.resources.displayMetrics
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // 버튼 왼쪽에 (자리가 없으면 오른쪽에)
+            x = if (bp.x - box.measuredWidth - dp(8) >= 0) bp.x - box.measuredWidth - dp(8) else bp.x + dp(62)
+            y = bp.y.coerceAtMost(dm.heightPixels - box.measuredHeight - dp(16)).coerceAtLeast(0)
+        }
+        wm.addView(box, lp)
+        menu = box
+    }
+
+    private fun hideMenu() {
+        menu?.let { runCatching { wm.removeView(it) } }
+        menu = null
+    }
+
+    // ───────── 읽을 영역 정하기 ─────────
+
+    private var editor: View? = null
+    val editing: Boolean get() = editor != null
+
+    /**
+     * 반투명 네모 틀을 띄운다. 가운데를 끌면 이동, 모서리를 끌면 크기 조절.
+     * done(rect) : 저장(화면 좌표) / done(null) : 전체 화면으로 / 취소는 done 안 부름
+     */
+    fun editRegion(initial: Rect?, done: (Rect?) -> Unit) {
+        closeEditor()
+        hideLabels()
+        hideMenu()
+        val dm = svc.resources.displayMetrics
+        val root = FrameLayout(svc)
+        val start = initial ?: Rect(dp(16), dm.heightPixels / 5, dm.widthPixels - dp(16), dm.heightPixels * 4 / 5)
+        val box = RegionView(svc, Rect(start))
+        root.addView(box, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        val bar = svc.hbox().apply {
+            background = svc.roundBg(Color.parseColor("#F21E232B"), Color.parseColor("#4C8FE0"), 2, 14)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        fun btn(label: String, color: Int, act: () -> Unit) = bar.addView(svc.text(label, 17f, color, bold = true).apply {
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setOnClickListener { act() }
+        })
+        btn("저장", C.GOOD) {
+            val loc = IntArray(2); root.getLocationOnScreen(loc)
+            val r = Rect(box.rect).apply { offset(loc[0], loc[1]) }
+            closeEditor(); done(r)
+        }
+        btn("전체 화면", C.ACCENT) { closeEditor(); done(null) }
+        btn("취소", C.GRAY) { closeEditor(); onToggle() }
+        root.addView(bar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(90)
+        })
+        root.addView(svc.text("네모 안의 콜만 읽어요\n가운데를 끌면 이동 · 모서리를 끌면 크기 조절", 15f, Color.WHITE, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = svc.roundBg(Color.parseColor("#E6161A21"), Color.parseColor("#4C8FE0"), 1, 10)
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(60)
+        })
+
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= 28) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        wm.addView(root, lp)
+        editor = root
+        // 창이 놓인 위치만큼 틀 좌표를 보정 (화면 좌표 → 창 좌표)
+        root.post {
+            val loc = IntArray(2); root.getLocationOnScreen(loc)
+            box.rect.offset(-loc[0], -loc[1]); box.invalidate()
+        }
+    }
+
+    private fun closeEditor() {
+        editor?.let { runCatching { wm.removeView(it) } }
+        editor = null
+    }
+
+    /** 반투명 바깥 + 테두리 + 모서리 동그라미. 끌어서 이동·크기 조절 */
+    @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
+    private class RegionView(ctx: android.content.Context, val rect: Rect) : View(ctx) {
+        private val dim = android.graphics.Paint().apply { color = Color.parseColor("#88000000") }
+        private val line = android.graphics.Paint().apply {
+            color = Color.parseColor("#4C8FE0"); style = android.graphics.Paint.Style.STROKE; strokeWidth = ctx.dp(3).toFloat()
+        }
+        private val dot = android.graphics.Paint().apply { color = Color.WHITE; isAntiAlias = true }
+        private val dotLine = android.graphics.Paint().apply {
+            color = Color.parseColor("#4C8FE0"); style = android.graphics.Paint.Style.STROKE; strokeWidth = ctx.dp(3).toFloat(); isAntiAlias = true
+        }
+        private val handle = ctx.dp(14).toFloat()
+        private val grab = ctx.dp(36)
+        private val minSize = ctx.dp(60)
+        private var mode = 0 // 0 없음, 1 이동, 2 왼위, 3 오위, 4 왼아래, 5 오아래
+        private var lx = 0f; private var ly = 0f
+
+        override fun onDraw(c: android.graphics.Canvas) {
+            val w = width.toFloat(); val h = height.toFloat()
+            c.drawRect(0f, 0f, w, rect.top.toFloat(), dim)
+            c.drawRect(0f, rect.bottom.toFloat(), w, h, dim)
+            c.drawRect(0f, rect.top.toFloat(), rect.left.toFloat(), rect.bottom.toFloat(), dim)
+            c.drawRect(rect.right.toFloat(), rect.top.toFloat(), w, rect.bottom.toFloat(), dim)
+            c.drawRect(rect, line)
+            for ((x, y) in listOf(rect.left to rect.top, rect.right to rect.top, rect.left to rect.bottom, rect.right to rect.bottom)) {
+                c.drawCircle(x.toFloat(), y.toFloat(), handle, dot)
+                c.drawCircle(x.toFloat(), y.toFloat(), handle, dotLine)
+            }
+        }
+
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            val x = ev.x; val y = ev.y
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    fun near(px: Int, py: Int) = abs(x - px) < grab && abs(y - py) < grab
+                    mode = when {
+                        near(rect.left, rect.top) -> 2
+                        near(rect.right, rect.top) -> 3
+                        near(rect.left, rect.bottom) -> 4
+                        near(rect.right, rect.bottom) -> 5
+                        rect.contains(x.toInt(), y.toInt()) -> 1
+                        else -> 0
+                    }
+                    lx = x; ly = y
+                    return mode != 0
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (x - lx).toInt(); val dy = (y - ly).toInt()
+                    lx = x; ly = y
+                    when (mode) {
+                        1 -> {
+                            val ox = dx.coerceIn(-rect.left, width - rect.right)
+                            val oy = dy.coerceIn(-rect.top, height - rect.bottom)
+                            rect.offset(ox, oy)
+                        }
+                        2 -> { rect.left = (rect.left + dx).coerceIn(0, rect.right - minSize); rect.top = (rect.top + dy).coerceIn(0, rect.bottom - minSize) }
+                        3 -> { rect.right = (rect.right + dx).coerceIn(rect.left + minSize, width); rect.top = (rect.top + dy).coerceIn(0, rect.bottom - minSize) }
+                        4 -> { rect.left = (rect.left + dx).coerceIn(0, rect.right - minSize); rect.bottom = (rect.bottom + dy).coerceIn(rect.top + minSize, height) }
+                        5 -> { rect.right = (rect.right + dx).coerceIn(rect.left + minSize, width); rect.bottom = (rect.bottom + dy).coerceIn(rect.top + minSize, height) }
+                    }
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> mode = 0
+            }
+            return true
+        }
     }
 
     private fun updateBubbleLook() {
@@ -282,6 +506,7 @@ class Overlay(
     }
 
     fun hideBubble() {
+        hideMenu()
         bubble?.let { runCatching { wm.removeView(it) } }
         bubble = null
         bubbleParams = null
@@ -290,10 +515,13 @@ class Overlay(
     fun hideAll() {
         hideLabels()
         hideBubble()
+        hideMenu()
     }
 
     fun destroy() {
         hideBubble()
+        hideMenu()
+        closeEditor()
         root?.let { runCatching { wm.removeView(it) } }
         root = null
         labelViews.clear()

@@ -8,4 +8,12 @@
         <item name="android:statusBarColor">#0C0E12</item>
         <item name="android:navigationBarColor">#0C0E12</item>
     </style>
+    <!-- 화면 캡처 허락만 받는 투명 화면 -->
+    <style name="Transparent" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

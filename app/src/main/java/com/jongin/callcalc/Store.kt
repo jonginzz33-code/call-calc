@@ -154,6 +154,37 @@ class Store(context: Context) {
         get() = p.getInt("bubbleY", -1)
         set(v) = p.edit().putInt("bubbleY", v).apply()
 
+    /** 앱마다 읽을 영역 (화면 좌표). 없으면 null = 자동 */
+    fun region(pkg: String): android.graphics.Rect? {
+        val v = p.getString("region_$pkg", null) ?: return null
+        val n = v.split(',').mapNotNull { it.toIntOrNull() }
+        return if (n.size == 4 && n[2] > n[0] && n[3] > n[1]) android.graphics.Rect(n[0], n[1], n[2], n[3]) else null
+    }
+
+    fun setRegion(pkg: String, r: android.graphics.Rect?) {
+        val e = p.edit()
+        if (r == null) e.remove("region_$pkg") else e.putString("region_$pkg", "${r.left},${r.top},${r.right},${r.bottom}")
+        e.apply()
+    }
+
+    fun clearAllRegions() {
+        val e = p.edit()
+        p.all.keys.filter { it.startsWith("region_") }.forEach { e.remove(it) }
+        e.apply()
+    }
+
+    fun regionCount(): Int = p.all.keys.count { it.startsWith("region_") }
+
+    /** 감시하는 앱이 화면에 있는 동안 화면이 저절로 꺼지지 않게 */
+    var keepScreenOn: Boolean
+        get() = p.getBoolean("keepScreenOn", true)
+        set(v) = p.edit().putBoolean("keepScreenOn", v).apply()
+
+    /** 화면이 꺼져서 캡처가 꺼졌으면, 화면을 다시 켤 때 시작 창 자동으로 띄우기 */
+    var autoAskCapture: Boolean
+        get() = p.getBoolean("autoAskCapture", true)
+        set(v) = p.edit().putBoolean("autoAskCapture", v).apply()
+
     fun evalSettings() = EvalSettings(
         formulaExpr = selectedFormula.expr,
         pickupMinPerKm = pickupMinPerKm,

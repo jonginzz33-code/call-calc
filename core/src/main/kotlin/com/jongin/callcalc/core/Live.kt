@@ -45,3 +45,25 @@ class SeenMemory {
         return EvalOutput(fixed, out.hiddenByMinPrice) to summary
     }
 }
+
+/**
+ * 잠깐 놓친 콜 유지 (깜빡임 방지).
+ * 바로 전에 보였던 콜이 이번 읽기에서만 빠졌으면, holdMs 동안은 그대로 둔다.
+ * 단, 그 자리에 다른 콜이 새로 읽혔거나 스크롤했으면 (clear) 버린다.
+ */
+class StickyRows(private val holdMs: Long = 1500) {
+    private val seen = LinkedHashMap<String, Pair<CallRow, Long>>()
+
+    fun clear() = seen.clear()
+
+    fun apply(rows: List<CallRow>, now: Long): List<CallRow> {
+        for (r in rows) if (r.complete) seen[r.key] = r to now
+        val keys = rows.map { it.key }.toSet()
+        val kept = seen.values.filter { (r, at) ->
+            r.key !in keys && now - at <= holdMs &&
+                rows.none { it.top < r.bottom && r.top < it.bottom } // 같은 자리에 다른 콜이 없을 때만
+        }.map { it.first }
+        seen.values.removeAll { now - it.second > holdMs }
+        return (rows + kept).sortedBy { it.top }
+    }
+}

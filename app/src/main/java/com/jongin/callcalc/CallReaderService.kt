@@ -45,19 +45,68 @@ class CallReaderService : AccessibilityService() {
 
     // 콜 목록이 시작되는 높이 (화면 좌표). 이보다 위는 OCR 안 함. 모르면 null
     private var listTop: Int? = null
+    // 잠깐 놓친 콜 유지 (깜빡임 방지)
+    private val sticky = com.jongin.callcalc.core.StickyRows(1500)
+    // 지금 화면에 있는 앱
+    private var curPkg: String? = null
+    private var lastAskAt = 0L
+
+    private val screenReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+            // 잠금 해제 직후 잠깐 기다렸다가 (잠금 화면이 사라진 뒤) 묻기
+            handler.postDelayed({ maybeAskCapture() }, 700)
+        }
+    }
+
+    /** 화면이 꺼지면서 캡처가 끊겼고, 캡처가 필요한 설정이면 시작 창을 자동으로 띄운다 (1분에 한 번까지) */
+    private fun maybeAskCapture() {
+        if (!store.autoAskCapture || !CaptureService.stoppedBySystem || CaptureService.instance != null) return
+        if (store.readMode == 1) return
+        val km = getSystemService(android.app.KeyguardManager::class.java)
+        if (km.isKeyguardLocked) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastAskAt < 60_000) return
+        lastAskAt = now
+        runCatching {
+            startActivity(android.content.Intent(this, CaptureStartActivity::class.java)
+                .putExtra(CaptureStartActivity.EXTRA_AUTO, true)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /** 읽을 영역 정하기 (지금 앱 기준으로 저장) */
+    private fun editRegion() {
+        val pkg = curPkg ?: return
+        overlay.editRegion(store.region(pkg)) { r ->
+            store.setRegion(pkg, r)
+            listTop = null
+            sticky.clear()
+            lastKey = null
+            CaptureService.instance?.forgetLast()
+            Toast.makeText(this, if (r == null) "전체 화면을 읽어요" else "네모 안만 읽어요", Toast.LENGTH_SHORT).show()
+            schedule(50)
+        }
+    }
 
     override fun onServiceConnected() {
         store = Store(this)
         overlay = Overlay(
             this, store,
-            onLongPress = {
+            onToggle = { lastKey = null; schedule(30) },
+            onScreenTouch = { onScreenTouch() },
+            onClearMemory = {
                 memory.clear()
+                sticky.clear()
                 Toast.makeText(this, "기억한 콜을 지웠어요", Toast.LENGTH_SHORT).show()
                 schedule(50)
             },
-            onToggle = { schedule(30) },
-            onScreenTouch = { onScreenTouch() },
+            onEditRegion = { editRegion() },
         )
+        // 화면이 다시 켜지면: 꺼지면서 끊긴 화면 캡처를 다시 묻기
+        androidx.core.content.ContextCompat.registerReceiver(this, screenReceiver, android.content.IntentFilter().apply {
+            addAction(android.content.Intent.ACTION_USER_PRESENT)
+            addAction(android.content.Intent.ACTION_SCREEN_ON)
+        }, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         instance = this
         schedule(300)
     }
@@ -69,12 +118,13 @@ class CallReaderService : AccessibilityService() {
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 // 다른 화면으로 넘어가면 (목록 새로고침, 상세 화면 등) 기억을 지운다
-                if (target) { memory.clear(); listTop = null }
+                if (target) { memory.clear(); listTop = null; sticky.clear() }
                 schedule(60)
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> if (target) {
                 // 스크롤하는 동안은 숨기고, 멈추면 다시 읽는다
                 lastScrollAt = SystemClock.uptimeMillis()
+                sticky.clear() // 스크롤하면 위치가 바뀌니 예전 줄은 버림
                 hideLabels()
                 schedule(SCROLL_SETTLE, postpone = true)
             }
@@ -100,6 +150,7 @@ class CallReaderService : AccessibilityService() {
 
     private fun cleanup() {
         handler.removeCallbacksAndMessages(null)
+        runCatching { unregisterReceiver(screenReceiver) }
         if (::overlay.isInitialized) overlay.destroy()
         instance = null
     }
@@ -150,7 +201,9 @@ class CallReaderService : AccessibilityService() {
             if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg }
             return
         }
-        if (lastPkg != pkg) { memory.clear(); listTop = null; lastPkg = pkg }
+        if (lastPkg != pkg) { memory.clear(); listTop = null; sticky.clear(); lastPkg = pkg }
+        curPkg = pkg
+        if (overlay.editing) return // 영역 정하는 중엔 읽지 않음
         overlay.showBubble()
         if (!store.overlayOn) { hideLabels(); schedule(HEARTBEAT); return }
         val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
@@ -159,8 +212,11 @@ class CallReaderService : AccessibilityService() {
         val mode = store.readMode
         if (mode != 2) {
             val t0 = SystemClock.elapsedRealtimeNanos()
-            val items = collect(root)
-            val rows = LiveRules.dropEdgeFailures(CallParser.parse(items))
+            val region = store.region(pkg)
+            val items = collect(root).let { all ->
+                if (region == null) all else all.filter { region.contains(it.centerX.toInt(), it.centerY.toInt()) }
+            }
+            val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(items)))
             val ms = (SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000
             if (rows.isNotEmpty() || mode == 1) {
                 show(rows, ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (접근성)" else null)
@@ -185,15 +241,17 @@ class CallReaderService : AccessibilityService() {
         if (ocrBusy) { ocrAgain = true; return }
         ocrBusy = true
         val startedAt = SystemClock.uptimeMillis()
-        val cropTop = listTop ?: statusBarHeight()
-        cap.captureAndRead(overlay.ownRects(), cropTop) { res ->
+        // 읽을 네모: 직접 정한 영역 > 자동(목록 시작 높이 아래) > 상태바 아래 전체
+        val crop = curPkg?.let { store.region(it) } ?: cap.defaultCrop(listTop ?: statusBarHeight())
+        cap.captureAndRead(overlay.ownRects(), crop) { res ->
             ocrBusy = false
             val scrolledMeanwhile = lastScrollAt > startedAt
             when {
                 scrolledMeanwhile -> schedule(SCROLL_SETTLE, postpone = true)
                 res is CaptureService.Result.Items -> {
-                    val rows = LiveRules.dropEdgeFailures(CallParser.parse(res.items))
-                    if (rows.isEmpty() && listTop != null) {
+                    val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(res.items)))
+                    val manual = curPkg?.let { store.region(it) } != null
+                    if (rows.isEmpty() && listTop != null && !manual) {
                         // 잘라 읽어서 못 찾았을 수 있음 → 다음엔 화면 전체로
                         listTop = null
                         cap.forgetLast()
@@ -224,6 +282,10 @@ class CallReaderService : AccessibilityService() {
         val est = (rows.minOf { it.top } - rowH).toInt().coerceAtLeast(statusBarHeight())
         listTop = minOf(listTop ?: est, est)
     }
+
+    /** 바로 전에 보였는데 이번에만 놓친 콜은 잠깐 유지 */
+    private fun stick(rows: List<CallRow>): List<CallRow> =
+        if (SystemClock.uptimeMillis() - lastScrollAt < 600) rows else sticky.apply(rows, SystemClock.uptimeMillis())
 
     private fun statusBarHeight(): Int {
         val id = resources.getIdentifier("status_bar_height", "dimen", "android")

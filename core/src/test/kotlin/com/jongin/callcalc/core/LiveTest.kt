@@ -55,3 +55,28 @@ class LiveTest {
         assertTrue(summary!!.startsWith("최고: 심곡동"), summary)
     }
 }
+
+class StickyTest {
+    private val rows = CallParser.parse(Sample.screen())
+
+    @Test fun missedRowIsKeptBriefly() {
+        val s = StickyRows(1500)
+        assertEquals(3, s.apply(rows, 0).size)
+        // 다음 읽기에서 3번을 놓침 → 1.5초 안이면 유지
+        assertEquals(3, s.apply(rows.take(2), 500).size)
+        // 2초 지나면 버림
+        assertEquals(2, s.apply(rows.take(2), 2100).size)
+    }
+
+    @Test fun replacedRowIsNotKept() {
+        val s = StickyRows(1500)
+        s.apply(rows, 0)
+        // 3번 자리에 다른 콜이 읽힘 → 예전 3번은 버림
+        val other = rows[2].copy(c = 99000.0, destination = "다른 곳")
+        val out = s.apply(listOf(rows[0], rows[1], other), 300)
+        assertEquals(3, out.size)
+        assertTrue(out.none { it.c == 12000.0 })
+        s.clear()
+        assertEquals(1, s.apply(listOf(rows[0]), 400).size)
+    }
+}

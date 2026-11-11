@@ -22,6 +22,7 @@ object PermissionGuide {
         val granted: (Activity) -> Boolean,
         val open: (Activity) -> Unit,
         val note: String? = null,                          // 막혔을 때 안내
+        val hint: String? = null,                          // 설정 화면이 열릴 때 아래쪽에 잠깐 띄우는 안내
         val extra: Pair<String, (Activity) -> Unit>? = null, // 보조 버튼
     )
 
@@ -29,17 +30,24 @@ object PermissionGuide {
         title = "접근성 (콜 계산기)",
         why = "콜 앱 화면의 글자를 읽고, 콜 옆에 계산값을 띄워요.",
         steps = listOf(
-            "아래 [켜러 가기]를 눌러요",
-            "'설치된 앱'(또는 '설치된 서비스')에서 콜 계산기를 눌러요",
+            "아래 [켜러 가기]를 누르면 콜 계산기 스위치 화면이 바로 열려요",
             "스위치를 켜고 [허용]을 눌러요",
-            "뒤로 가기를 눌러 돌아와요",
+            "켜지면 자동으로 이 앱으로 돌아와요",
         ),
+        hint = "콜 계산기 스위치를 켜고 [허용]을 눌러 주세요\n(목록이 나오면 '설치된 앱' → 콜 계산기)",
         note = "스위치가 회색으로 잠겨 안 켜지면: [앱 정보 열기] → 오른쪽 위 ⋮ → '제한된 설정 허용' → 다시 [켜러 가기]",
         extra = "앱 정보 열기" to { a ->
             a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
         },
         granted = { isAccessibilityOn(it) },
-        open = { it.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+        open = { a ->
+            // 안드로이드 13+: 콜 계산기 스위치 화면으로 바로. 안 되면 접근성 첫 화면
+            val direct = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                .putExtra(Intent.EXTRA_COMPONENT_NAME, android.content.ComponentName(a, CallReaderService::class.java).flattenToString())
+            if (android.os.Build.VERSION.SDK_INT < 33 || runCatching { a.startActivity(direct) }.isFailure) {
+                a.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        },
     )
 
     fun isAccessibilityOn(a: Activity): Boolean {
@@ -56,13 +64,45 @@ object PermissionGuide {
         steps = listOf(
             "아래 [켜러 가기]를 눌러요",
             "'이 출처 허용' 스위치를 켜요",
-            "뒤로 가기를 누르면 이 앱으로 돌아와요",
+            "켜지면 자동으로 이 앱으로 돌아와요",
         ),
+        hint = "'이 출처 허용' 스위치를 켜 주세요",
         granted = { it.packageManager.canRequestPackageInstalls() },
         open = { it.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${it.packageName}"))) },
     )
 
     fun all(): List<Perm> = listOf(accessibility, installApps)
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var watch: Runnable? = null
+
+    /**
+     * 설정 화면 열기 + 아래쪽 안내 문구 + 켜지면 자동으로 콜 계산기로 돌아오기.
+     * (켜졌는지 0.5초마다 확인, 3분까지)
+     */
+    fun go(a: Activity, p: Perm) {
+        runCatching { p.open(a) }
+        p.hint?.let { android.widget.Toast.makeText(a.applicationContext, it, android.widget.Toast.LENGTH_LONG).show() }
+        watch?.let { main.removeCallbacks(it) }
+        val until = android.os.SystemClock.uptimeMillis() + 180_000
+        val r = object : Runnable {
+            override fun run() {
+                if (runCatching { p.granted(a) }.getOrDefault(false)) {
+                    watch = null
+                    android.widget.Toast.makeText(a.applicationContext, "✅ ${p.title} 켜졌어요", android.widget.Toast.LENGTH_SHORT).show()
+                    runCatching {
+                        a.startActivity(Intent(a, MainActivity::class.java).addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                        ))
+                    }
+                    return
+                }
+                if (android.os.SystemClock.uptimeMillis() < until) main.postDelayed(this, 500) else watch = null
+            }
+        }
+        watch = r
+        main.postDelayed(r, 800)
+    }
 
     fun missing(a: Activity): List<Perm> = all().filter { p -> runCatching { !p.granted(a) }.getOrDefault(false) }
 
@@ -90,7 +130,7 @@ object PermissionGuide {
         c.addView(a.text(p.steps.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n"), 17f, C.SUB).apply {
             setLineSpacing(0f, 1.3f)
         }.margins(a, top = 8))
-        c.addView(a.button("켜러 가기 →", big = true) { p.open(a) }.apply {
+        c.addView(a.button("켜러 가기 →", big = true) { go(a, p) }.apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 .also { it.topMargin = a.dp(12) }
         })
@@ -115,7 +155,7 @@ object PermissionGuide {
                 layoutParams = lp().also { it.setMargins(0, a.dp(4), 0, a.dp(4)) }
             }
             row.addView(a.text((if (on) "✅ " else "❌ ") + p.title, 18f, if (on) C.FG else C.WARN, bold = !on), lp(0, weight = 1f))
-            if (!on) row.addView(a.button("켜러 가기", outlined = true) { p.open(a) })
+            if (!on) row.addView(a.button("켜러 가기", outlined = true) { go(a, p) })
             box.addView(row)
         }
         return box

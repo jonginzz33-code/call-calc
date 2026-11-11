@@ -185,6 +185,29 @@ class SettingsActivity : AppCompatActivity() {
             live()
         })
 
+        // 화면 꺼짐 대응
+        fun switchRow(label: String, on: Boolean, set: (Boolean) -> Unit) {
+            val row = hbox().apply { margins(this@SettingsActivity, top = 12) }
+            row.addView(text(label, 17f), lp(0, weight = 1f))
+            row.addView(MaterialSwitch(this).apply {
+                isChecked = on
+                setOnCheckedChangeListener { _, v -> set(v); live() }
+            })
+            root.addView(row)
+        }
+        switchRow("감시하는 앱이 떠 있는 동안 화면 꺼짐 방지", store.keepScreenOn) { store.keepScreenOn = it }
+        root.addView(text("화면이 꺼지면 안드로이드가 화면 캡처를 끊어요. 켜 두면 콜 앱을 보는 동안은 화면이 저절로 꺼지지 않아요 (배터리 조금 더 씀).", 15f, C.DIM))
+        switchRow("화면을 다시 켜면 화면 캡처 시작 창 자동으로 띄우기", store.autoAskCapture) { store.autoAskCapture = it }
+        root.addView(text("화면이 꺼져서 캡처가 끊겼을 때, 잠금을 풀면 허락 창이 바로 떠요. [시작]만 누르면 돼요.", 15f, C.DIM))
+
+        // 읽을 영역
+        root.addView(text("읽을 영역 (네모)", 18f, bold = true).margins(this, top = 16))
+        root.addView(text("콜 앱에서 [콜 ON]을 두 번 톡(또는 길게) → [읽을 영역 정하기]. 네모 안만 읽어서 더 빨라요. 앱마다 따로 기억해요.\n지금 정해 둔 앱: ${store.regionCount()}개", 15f, C.DIM))
+        root.addView(button("읽을 영역 모두 지우기 (전체 화면으로)", outlined = true) {
+            store.clearAllRegions(); live()
+            android.widget.Toast.makeText(this, "읽을 영역을 모두 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
+        }.margins(this, top = 6))
+
         // ── 권한 ──
         root.addView(sectionTitle("권한"))
         permBox = vbox()
