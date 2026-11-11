@@ -36,6 +36,7 @@ class Overlay(
     private val onClearMemory: () -> Unit,
     private val onEditRegion: () -> Unit,
     private val onTrash: () -> Unit,
+    private val onCheck: () -> Unit,
 ) {
     private val wm = svc.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -147,12 +148,16 @@ class Overlay(
             shownRects += Rect(x, y, x + w, y + h)
         }
 
+        // 맨 위 안내: 배경·테두리 없이 반투명 글씨만 (그림자로 밝은 화면에서도 보이게)
         val b = bannerView ?: TextView(svc).apply {
             textSize = 13f
-            setTextColor(Color.WHITE)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-            background = svc.roundBg(Color.parseColor("#E6161A21"), Color.parseColor("#4C8FE0"), 1, 10)
-            maxLines = 2
+            setTextColor(Color.argb(170, 255, 255, 255))
+            setTypeface(typeface, Typeface.BOLD)
+            setShadowLayer(dp(2).toFloat(), 0f, 0f, Color.BLACK)
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+            background = null
+            maxLines = 3
             bannerView = this
             r.addView(this, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         }
@@ -211,6 +216,7 @@ class Overlay(
     fun ownRects(): List<Rect> {
         val list = shownRects.toMutableList()
         bubbleParams?.let { p -> bubble?.let { b -> list += Rect(p.x, p.y, p.x + b.width, p.y + b.height) } }
+        checkParams?.let { p -> check?.let { c -> list += Rect(p.x, p.y, p.x + c.width, p.y + c.height) } }
         return list
     }
 
@@ -246,8 +252,9 @@ class Overlay(
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (store.bubbleX >= 0) store.bubbleX else dm.widthPixels - size - dp(8)
-            y = if (store.bubbleY >= 0) store.bubbleY else dm.heightPixels / 2
+            // 처음 위치: 아래쪽 가운데 (내비게이션 바 바로 위)
+            x = if (store.bubbleX >= 0) store.bubbleX else (dm.widthPixels - size) / 2
+            y = if (store.bubbleY >= 0) store.bubbleY else dm.heightPixels - size - navBarHeight() - dp(24)
             alpha = 0.9f
         }
 
@@ -281,6 +288,7 @@ class Overlay(
                         lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
                         lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
                         runCatching { wm.updateViewLayout(v, lp) }
+                        placeCheck()
                         highlightTrash(overTrash(lp.x + size / 2, lp.y + size / 2))
                     }
                 }
@@ -292,6 +300,7 @@ class Overlay(
                         if (drop) {
                             // 쓰레기통에 버림 → 앱 종료. 버튼 자리는 원래대로 (다음에 켤 때)
                             lp.x = startX; lp.y = startY
+                            placeCheck()
                             onTrash()
                         } else {
                             store.bubbleX = lp.x
@@ -317,6 +326,94 @@ class Overlay(
         bubble = b
         bubbleParams = lp
         updateBubbleLook()
+        showCheck()
+    }
+
+    // ───────── [콜 확인] 버튼 (콜 ON 옆) ─────────
+
+    private var check: TextView? = null
+    private var checkParams: WindowManager.LayoutParams? = null
+
+    private fun showCheck() {
+        if (check != null) return
+        val size = dp(54)
+        val c = TextView(svc).apply {
+            text = "콜\n확인"
+            gravity = Gravity.CENTER
+            textSize = 13f
+            setLineSpacing(0f, 0.9f)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(Color.parseColor("#2F9E58"))
+                setStroke(dp(2), Color.WHITE)
+            }
+            setOnClickListener { onCheck() }
+        }
+        val lp = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START; alpha = 0.9f }
+        check = c
+        checkParams = lp
+        placeCheck(add = true)
+    }
+
+    /** [콜 ON] 바로 왼쪽에 (자리가 없으면 오른쪽) */
+    private fun placeCheck(add: Boolean = false) {
+        val c = check ?: return
+        val lp = checkParams ?: return
+        val bp = bubbleParams ?: return
+        val size = dp(54)
+        lp.x = if (bp.x - size - dp(10) >= 0) bp.x - size - dp(10) else bp.x + size + dp(10)
+        lp.y = bp.y
+        if (add) runCatching { wm.addView(c, lp) } else runCatching { wm.updateViewLayout(c, lp) }
+    }
+
+    private fun hideCheck() {
+        check?.let { runCatching { wm.removeView(it) } }
+        check = null
+        checkParams = null
+    }
+
+    // ───────── 콜 확인 결과 창 (화면 가운데, 누르면 닫힘) ─────────
+
+    private var result: View? = null
+
+    fun showResult(title: String, lines: List<Pair<String, Int>>, big: String?, bigColor: Int) {
+        hideResult()
+        val box = svc.vbox(18).apply {
+            background = svc.roundBg(Color.parseColor("#F21E232B"), Color.parseColor("#2F9E58"), 2, 18)
+            setOnClickListener { hideResult() }
+        }
+        box.addView(svc.text(title, 17f, Color.WHITE, bold = true))
+        for ((t, color) in lines) box.addView(svc.text(t, 16f, color).margins(svc, top = 6))
+        if (big != null) box.addView(svc.text(big, 30f, bigColor, bold = true).margins(svc, top = 10))
+        box.addView(svc.text("눌러서 닫기", 13f, C.GRAY).margins(svc, top = 10))
+        val dm = svc.resources.displayMetrics
+        val lp = WindowManager.LayoutParams(
+            (dm.widthPixels * 0.86).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.CENTER }
+        runCatching { wm.addView(box, lp) }
+        result = box
+    }
+
+    fun hideResult() {
+        result?.let { runCatching { wm.removeView(it) } }
+        result = null
+    }
+
+    private fun navBarHeight(): Int {
+        val id = svc.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (id > 0) svc.resources.getDimensionPixelSize(id) else 0
     }
 
     // ───────── 쓰레기통 (끌어다 놓으면 종료) ─────────
@@ -584,6 +681,8 @@ class Overlay(
 
     fun hideBubble() {
         hideMenu()
+        hideCheck()
+        hideResult()
         hideTrash()
         bubble?.let { runCatching { wm.removeView(it) } }
         bubble = null

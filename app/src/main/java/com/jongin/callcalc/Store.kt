@@ -181,6 +181,36 @@ class Store(context: Context) {
         get() = p.getBoolean("refreshAuto", false)
         set(v) = p.edit().putBoolean("refreshAuto", v).apply()
 
+    // ───── 좋은 콜 알림 ─────
+    var goodAlertOn: Boolean
+        get() = p.getBoolean("goodAlertOn", true)
+        set(v) = p.edit().putBoolean("goodAlertOn", v).apply()
+
+    /** 분당 이 금액 이상이면 진동 + 소리 (기본 1,000원) */
+    var goodAlertMin: Double
+        get() = p.getString("goodAlertMin", "")!!.toDoubleOrNull() ?: 1000.0
+        set(v) = p.edit().putString("goodAlertMin", plain(v)).apply()
+
+    // ───── 오늘 통계: 하루 = 시작 시각 ~ 끝 시각 (기본 오후 5시 ~ 다음 날 오전 6시) ─────
+    var statsStartHour: Int
+        get() = p.getInt("statsStartHour", 17)
+        set(v) = p.edit().putInt("statsStartHour", v.coerceIn(0, 23)).apply()
+
+    var statsEndHour: Int
+        get() = p.getInt("statsEndHour", 6)
+        set(v) = p.edit().putInt("statsEndHour", v.coerceIn(0, 23)).apply()
+
+    // ───── 콜 확인 (카카오 길찾기) ─────
+    /** 앱 안에서 넣은 카카오 REST 키. 비어 있으면 빌드할 때 넣은 키 */
+    var kakaoKey: String
+        get() = p.getString("kakaoKey", "")!!.trim().ifEmpty { BuildConfig.KAKAO_REST_KEY }
+        set(v) = p.edit().putString("kakaoKey", v.trim()).apply()
+
+    val kakaoKeyFromApp: Boolean get() = p.getString("kakaoKey", "")!!.isNotBlank()
+
+    /** [콜 ON] 버튼 위치를 처음(아래 가운데)으로 */
+    fun resetBubble() = p.edit().putInt("bubbleX", -1).putInt("bubbleY", -1).apply()
+
     /** [앱 종료]를 누른 상태. 앱을 다시 열면 false */
     var paused: Boolean
         get() = p.getBoolean("paused", false)
@@ -206,6 +236,10 @@ class Store(context: Context) {
     )
 
     init {
+        // v0.5.0: 버튼 처음 위치가 아래 가운데로 바뀌어서, 저장된 위치를 한 번 지움
+        if (!p.getBoolean("bubbleResetV050", false)) {
+            p.edit().putBoolean("bubbleResetV050", true).putInt("bubbleX", -1).putInt("bubbleY", -1).apply()
+        }
         // v0.3.0: 식을 직접 저장해 둔 사람에게도 새 기본 식(1분당 금액)을 맨 앞에 넣고 선택
         if (!p.getBoolean("migratedPerMinute", false)) {
             p.edit().putBoolean("migratedPerMinute", true).apply()

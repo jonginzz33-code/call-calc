@@ -22,7 +22,11 @@ android {
         targetSdk = 36
         versionCode = buildNumber
         versionName = readmeVersion
+        // 콜 확인(카카오 길찾기)용 키: GitHub 비밀값 KAKAO_REST_KEY. 없으면 앱 설정에서 넣을 수 있음
+        buildConfigField("String", "KAKAO_REST_KEY", "\"${System.getenv("KAKAO_REST_KEY")?.trim() ?: ""}\"")
     }
+
+    buildFeatures { buildConfig = true }
 
     // 저장소에 넣어 둔 고정 디버그 키로 서명: 새 버전을 기존 앱 위에 덮어 설치할 수 있게
     signingConfigs {

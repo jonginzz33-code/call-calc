@@ -175,6 +175,40 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(header)
 
+        // 🔔 좋은 콜 알림 (맨 위 설정): 분당 이 금액 이상이면 진동 + 소리
+        val alertBox = vbox().apply {
+            background = roundBg(C.PANEL, C.GOOD, 2, 16)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        val alertTop = hbox()
+        alertTop.addView(text("🔔 좋은 콜 알림", 19f, bold = true), lp(0, weight = 1f))
+        alertTop.addView(com.google.android.material.materialswitch.MaterialSwitch(this).apply {
+            isChecked = store.goodAlertOn
+            setOnCheckedChangeListener { _, on -> store.goodAlertOn = on; CallReaderService.instance?.settingsChanged() }
+        })
+        alertBox.addView(alertTop)
+        val alertRow = hbox().apply { margins(this@MainActivity, top = 4) }
+        alertRow.addView(text("분당", 18f))
+        alertRow.addView(android.widget.EditText(this).apply {
+            setText(Store.plain(store.goodAlertMin))
+            textSize = 22f
+            setTextColor(C.GOOD)
+            setTypeface(typeface, Typeface.BOLD)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            isSingleLine = true
+            gravity = Gravity.CENTER
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    e?.toString()?.replace(",", "")?.toDoubleOrNull()?.let { store.goodAlertMin = it; CallReaderService.instance?.settingsChanged() }
+                }
+            })
+        }, lp(dp(120)))
+        alertRow.addView(text("원 이상이면 진동 + 소리", 18f), lp(0, weight = 1f))
+        alertBox.addView(alertRow)
+        root.addView(alertBox.margins(this, top = 12))
+
         liveBox = vbox().apply {
             background = roundBg(C.PANEL, C.BTN, 2, 16)
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -252,6 +286,9 @@ class MainActivity : AppCompatActivity() {
         if (!::liveBox.isInitialized) return
         liveBox.removeAllViews()
         liveBox.addView(text("🚗 실시간 모드", 21f, bold = true))
+        StatsStore(this, store).summary()?.let {
+            liveBox.addView(text("📊 $it  (${store.statsStartHour}시~${store.statsEndHour}시 기준)", 15f, C.SUB).margins(this, top = 4))
+        }
         val accOn = PermissionGuide.isAccessibilityOn(this)
         val apps = store.targetPackages
         val mode = store.readMode

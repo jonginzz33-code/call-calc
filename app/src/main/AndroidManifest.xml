@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 인터넷은 새 버전 확인·받기(Updater.kt)에만 씀. 읽은 콜 내용은 밖으로 보내지 않음 -->
+    <!-- 인터넷: 새 버전 확인·받기(Updater.kt), 그리고 [콜 확인]을 누를 때만 출발지·도착지 이름과 내 위치를 카카오 길찾기에 보냄 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <!-- 받은 새 버전 설치 -->
@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 좋은 콜 알림 진동 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 콜 확인: 내 위치 → 출발지 실제 도로 거리 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- '감시할 앱' 목록에 설치된 앱을 보여 주기 위해 -->
     <queries>

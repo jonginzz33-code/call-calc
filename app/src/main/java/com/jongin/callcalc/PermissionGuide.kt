@@ -71,7 +71,24 @@ object PermissionGuide {
         open = { it.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${it.packageName}"))) },
     )
 
-    fun all(): List<Perm> = listOf(accessibility, installApps)
+    private val location = Perm(
+        title = "위치 (콜 확인용)",
+        why = "[콜 확인]을 누를 때 내 위치에서 출발지까지 실제 도로 거리를 계산해요. 그때만 써요.",
+        steps = listOf(
+            "아래 [켜러 가기]를 눌러요",
+            "'앱 사용 중에만 허용'(또는 '허용')을 눌러요",
+        ),
+        note = "허용 창이 안 뜨면: [앱 정보 열기] → 권한 → 위치 → 허용",
+        extra = "앱 정보 열기" to { a ->
+            a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
+        },
+        granted = { KakaoRoute.hasLocationPermission(it) },
+        open = { a ->
+            a.requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), 71)
+        },
+    )
+
+    fun all(): List<Perm> = listOf(accessibility, installApps, location)
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var watch: Runnable? = null

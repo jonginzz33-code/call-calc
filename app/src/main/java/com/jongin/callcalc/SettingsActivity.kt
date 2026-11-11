@@ -214,6 +214,36 @@ class SettingsActivity : AppCompatActivity() {
             android.widget.Toast.makeText(this, "읽을 영역을 모두 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
         }.margins(this, top = 6))
 
+        // 오늘 통계
+        root.addView(text("오늘 통계 (맨 위 투명 글씨)", 18f, bold = true).margins(this, top = 16))
+        root.addView(text("하루 = 시작 시각 ~ 끝 시각. 밤을 넘기면 같은 하루로 묶고, 그 밖의 시간에 본 콜은 빼요. 같은 콜은 한 번만 세요.", 15f, C.DIM))
+        val hours = hbox().apply { margins(this@SettingsActivity, top = 6) }
+        hours.addView(text("시작", 17f))
+        hours.addView(hourField(store.statsStartHour) { store.statsStartHour = it; live() }, lp(dp(80)))
+        hours.addView(text("시  ~  끝", 17f))
+        hours.addView(hourField(store.statsEndHour) { store.statsEndHour = it; live() }, lp(dp(80)))
+        hours.addView(text("시 (0~23)", 17f))
+        root.addView(hours)
+        root.addView(button("오늘 통계 기록 지우기", outlined = true) {
+            CallReaderService.instance?.clearStats() ?: StatsStore(this, store).clear(); live()
+            android.widget.Toast.makeText(this, "통계 기록을 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
+        }.margins(this, top = 6))
+
+        // 콜 확인 (카카오 길찾기)
+        root.addView(text("콜 확인 (실제 도로 거리)", 18f, bold = true).margins(this, top = 16))
+        root.addView(text("상세 화면에서 [콜 확인]을 누르면 픽업(내 위치 → 출발지) + 운행(출발지 → 도착지)을 카카오 길찾기(차량)로 계산해요. 누를 때만 출발지·도착지 이름과 내 위치를 카카오에 보내요.", 15f, C.DIM))
+        root.addView(text("카카오 REST 키 " + if (store.kakaoKey.isBlank()) "❌ 없음" else if (store.kakaoKeyFromApp) "✅ 앱에 넣은 키" else "✅ 빌드에 들어간 키", 16f).margins(this, top = 6))
+        root.addView(editText("키를 직접 넣기 (비우면 빌드에 들어간 키)", if (store.kakaoKeyFromApp) store.kakaoKey else "").apply {
+            addTextChangedListener(afterChange { store.kakaoKey = it })
+        })
+
+        // 버튼 위치
+        root.addView(button("[콜 ON] 버튼 위치 처음으로 (아래 가운데)", outlined = true) {
+            store.resetBubble()
+            CallReaderService.instance?.resetBubble()
+            android.widget.Toast.makeText(this, "버튼을 아래 가운데로 옮겼어요", android.widget.Toast.LENGTH_SHORT).show()
+        }.margins(this, top = 16))
+
         // ── 권한 ──
         root.addView(sectionTitle("권한"))
         permBox = vbox()
@@ -497,6 +527,12 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
             override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
         })
+    }
+
+    private fun hourField(value: Int, save: (Int) -> Unit) = editText("", value.toString()).apply {
+        inputType = InputType.TYPE_CLASS_NUMBER
+        gravity = Gravity.CENTER
+        addTextChangedListener(afterChange { t -> t.toIntOrNull()?.takeIf { it in 0..23 }?.let(save) })
     }
 
     private fun afterChange(f: (String) -> Unit) = object : TextWatcher {

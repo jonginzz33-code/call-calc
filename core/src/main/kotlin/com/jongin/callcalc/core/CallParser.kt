@@ -48,6 +48,8 @@ data class CallRow(
 /** 숫자 추출 규칙 (설명서 3절) */
 object Extract {
     private val kmRe = Regex("""(\d+(?:\.\d+)?)\s*[kK][mM]""")
+    // 1km 미만은 "753m" 처럼 미터로 나옴 (km 의 m 과 헷갈리지 않게 앞이 숫자일 때만)
+    private val mRe = Regex("""(?<![\d.])(\d+(?:\.\d+)?)\s*[mM](?![a-zA-Z])""")
     private val hourMinRe = Regex("""(\d+)\s*시간\s*(\d+)\s*분""")
     private val hourRe = Regex("""(\d+)\s*시간""")
     private val minRe = Regex("""(\d+)\s*분""")
@@ -69,7 +71,9 @@ object Extract {
         val before = if (m.range.first > 0) s[m.range.first - 1] else ' '
         val afterIdx = m.range.last + 1
         val after = if (afterIdx < s.length) s[afterIdx] else ' '
-        val afterIsKm = s.regionMatches(afterIdx, "km", 0, 2, ignoreCase = true)
+        val afterIsKm = s.regionMatches(afterIdx, "km", 0, 2, ignoreCase = true) ||
+            (afterIdx < s.length && (s[afterIdx] == 'm' || s[afterIdx] == 'M') &&
+                (afterIdx + 1 >= s.length || !s[afterIdx + 1].isAsciiLetter()))
         if (before.isAsciiLetter()) return@replace t
         if (after.isAsciiLetter() && !afterIsKm) return@replace t
         t.map {
@@ -85,7 +89,11 @@ object Extract {
 
     private fun Char.isAsciiLetter() = this in 'a'..'z' || this in 'A'..'Z'
 
-    fun km(s: String): Double? = kmRe.find(s)?.groupValues?.get(1)?.toDoubleOrNull()
+    /** 거리(km). "5.3km" → 5.3, "753m" → 0.753 */
+    fun km(s: String): Double? {
+        kmRe.find(s)?.groupValues?.get(1)?.toDoubleOrNull()?.let { return it }
+        return mRe.find(s)?.groupValues?.get(1)?.toDoubleOrNull()?.let { it / 1000.0 }
+    }
 
     /** "72분" → 72, "1시간 12분" → 72, "2시간" → 120 */
     fun minutes(s: String): Double? {
@@ -106,7 +114,7 @@ object Extract {
     fun payment(s: String): String? = payRe.find(s)?.value
 
     fun stripKmAndTime(s: String): String =
-        minRe.replace(hourRe.replace(hourMinRe.replace(kmRe.replace(s, " "), " "), " "), " ")
+        minRe.replace(hourRe.replace(hourMinRe.replace(mRe.replace(kmRe.replace(s, " "), " "), " "), " "), " ")
 
     /** 주소 글자만 남긴다: km, 금액, 시간, 결제 수단, 구분선 제거 */
     fun placeText(s: String): String {

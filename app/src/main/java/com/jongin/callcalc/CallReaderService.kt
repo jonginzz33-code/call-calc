@@ -9,6 +9,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import com.jongin.callcalc.core.CallParser
+import com.jongin.callcalc.core.DetailParser
 import com.jongin.callcalc.core.CallRow
 import com.jongin.callcalc.core.EvalOutput
 import com.jongin.callcalc.core.Evaluator
@@ -29,6 +30,12 @@ import com.jongin.callcalc.core.TextItem
 class CallReaderService : AccessibilityService() {
     private lateinit var store: Store
     private lateinit var overlay: Overlay
+    private lateinit var stats: StatsStore
+    private var source = ""                       // 이번에 읽은 방식: 접근성 / 캡처
+    private var lastItems: List<TextItem> = emptyList()
+    private val alerted = HashSet<String>()       // 이미 알린 좋은 콜
+    private var alertNote: String? = null
+    private var alertUntil = 0L
     private val handler = Handler(Looper.getMainLooper())
     private val memory = SeenMemory()
     private var lastScrollAt = 0L
@@ -90,6 +97,7 @@ class CallReaderService : AccessibilityService() {
 
     override fun onServiceConnected() {
         store = Store(this)
+        stats = StatsStore(this, store)
         overlay = Overlay(
             this, store,
             onToggle = { lastKey = null; schedule(30) },
@@ -101,6 +109,7 @@ class CallReaderService : AccessibilityService() {
                 schedule(50)
             },
             onEditRegion = { editRegion() },
+            onCheck = { checkCall() },
             onTrash = {
                 // 쓰레기통에 버림 = [앱 종료]와 같음. 앱을 다시 열면 켜짐
                 store.paused = true
@@ -159,6 +168,7 @@ class CallReaderService : AccessibilityService() {
 
     private fun cleanup() {
         handler.removeCallbacksAndMessages(null)
+        if (::stats.isInitialized) stats.save()
         runCatching { unregisterReceiver(screenReceiver) }
         if (::overlay.isInitialized) overlay.destroy()
         instance = null
@@ -216,6 +226,15 @@ class CallReaderService : AccessibilityService() {
         lastPkg = null
     }
 
+    /** 통계 기록 지우기 (설정에서) */
+    fun clearStats() { stats.clear(); alerted.clear(); lastKey = null; schedule(50) }
+
+    /** 버튼 위치를 처음으로 → 다시 그리기 */
+    fun resetBubble() {
+        overlay.hideBubble()
+        schedule(50)
+    }
+
     /** 앱을 다시 열면 이어서 */
     fun resume() = schedule(100)
 
@@ -247,7 +266,16 @@ class CallReaderService : AccessibilityService() {
             }
             val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(items)))
             val ms = (SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000
+            lastItems = items
+            // 콜 상세 화면(수락 전)이면: 목록이 아니니 "못 읽었어요" 안내 없이, [콜 확인]을 쓰면 됨
+            if (rows.isEmpty() && DetailParser.parse(items) != null) {
+                source = "접근성"
+                show(emptyList(), ms, "상세 화면 · [콜 확인]을 누르면 실제 도로로 분당 금액을 계산해요")
+                idle(HEARTBEAT)
+                return
+            }
             if (rows.isNotEmpty() || mode == 1) {
+                source = "접근성"
                 show(rows, ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (접근성)" else null)
                 idle(HEARTBEAT)
                 return
@@ -278,6 +306,8 @@ class CallReaderService : AccessibilityService() {
             when {
                 scrolledMeanwhile -> schedule(SCROLL_SETTLE, postpone = true)
                 res is CaptureService.Result.Items -> {
+                    source = "캡처"
+                    lastItems = res.items
                     val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(res.items)))
                     val manual = curPkg?.let { store.region(it) } != null
                     if (rows.isEmpty() && listTop != null && !manual) {
@@ -366,19 +396,92 @@ class CallReaderService : AccessibilityService() {
         val s = store.evalSettings()
         val (out, summary) = if (store.bestAllSeen) memory.evaluate(rows, s) else Evaluator.evaluate(rows, s) to null
         val calcMs = (SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000
-        val parts = mutableListOf(MainActivity.pretty(store.selectedFormula.expr) + " (픽업 1km=${Store.plain(store.pickupMinPerKm)}분)")
-        if (summary != null) parts += summary
-        if (store.showSpeed && readMs >= 0) parts += "⏱ ${readMs + calcMs}ms"
-        if (note != null) parts += note
-        val banner = parts.joinToString(" · ")
+        // 오늘 통계 기록 (중복 빼고) + 좋은 콜 알림
+        stats.record(rows)
+        checkGoodCalls(out.rows)
+
+        // 맨 위 투명 글씨: 1줄 = 오늘 통계 · 읽은 방식 · 속도, 2줄 = 알림/안내 (있을 때만)
+        val line1 = mutableListOf<String>()
+        stats.summary()?.let { line1 += it }
+        if (summary != null) line1 += summary
+        if (source.isNotEmpty()) line1 += source
+        if (store.showSpeed && readMs >= 0) line1 += "⏱${readMs + calcMs}ms"
+        val line2 = listOfNotNull(
+            alertNote?.takeIf { SystemClock.uptimeMillis() < alertUntil },
+            note,
+        )
+        val banner = (listOf(line1.joinToString(" · ")) + line2).filter { it.isNotBlank() }.joinToString("\n")
         // 내용이 같으면 다시 그리지 않음 (깜빡임 방지). 속도 숫자만 바뀐 건 무시
-        val key = out.rows.hashCode().toString() + "|" + summary + "|" + note + "|" + store.overlayTextSp
+        val key = out.rows.hashCode().toString() + "|" + summary + "|" + note + "|" + store.overlayTextSp +
+            "|" + stats.summary() + "|" + line2 + "|" + source
         val wasHidden = lastShown == null || !overlayVisible
         lastShown = out to banner
         if (key == lastKey && !wasHidden) return
         lastKey = key
         overlayVisible = true
         overlay.showLabels(out.rows, banner, labelBounds())
+    }
+
+    /** 분당 금액이 기준 이상인 새 콜이 있으면 진동 + 소리 (같은 콜은 한 번만, 빨강 지역은 빼고) */
+    private fun checkGoodCalls(rows: List<com.jongin.callcalc.core.EvaluatedRow>) {
+        if (!store.goodAlertOn) return
+        val min = store.goodAlertMin
+        val good = rows.filter {
+            it.value != null && it.value!! >= min && it.regionColor != com.jongin.callcalc.core.RegionColor.RED &&
+                alerted.add(it.row.key)
+        }
+        if (good.isEmpty()) return
+        val best = good.maxByOrNull { it.value!! }!!
+        alertNote = "🔥 분당 ${com.jongin.callcalc.core.formatNumber(best.value!!)} · " +
+            "${LiveRules.shortPlace(best.row.destination)} · ${com.jongin.callcalc.core.formatNumber(best.row.c!!)}"
+        alertUntil = SystemClock.uptimeMillis() + 6000
+        Alert.play(this)
+        if (alerted.size > 500) alerted.clear()
+        // 6초 뒤 알림 글씨 지우기
+        handler.postDelayed({ lastKey = null; schedule(0) }, 6100)
+    }
+
+    /**
+     * [콜 확인]: 상세 화면에서 금액·출발지·도착지를 읽고, 카카오 길찾기로
+     * 픽업(내 위치 → 출발지) + 운행(출발지 → 도착지) 실제 도로 시간을 구해 분당 금액을 계산
+     */
+    private fun checkCall() {
+        val root = runCatching { rootInActiveWindow }.getOrNull()
+        val items = root?.let { collect(it) }?.takeIf { DetailParser.parse(it) != null } ?: lastItems
+        val detail = DetailParser.parse(items)
+        if (detail == null) {
+            overlay.showResult("콜 확인", listOf(
+                "상세 화면(콜을 눌렀을 때 나오는 [콜 수락하기] 화면)에서 눌러 주세요." to C.FG,
+                "출발·도착 글자를 못 찾았어요." to C.GRAY,
+            ), null, C.FG)
+            return
+        }
+        overlay.showResult("콜 확인 · 계산 중…", listOf(
+            "출발  ${detail.origin}" to C.SUB,
+            "도착  ${detail.destination}" to C.SUB,
+        ), null, C.FG)
+        KakaoRoute.check(this, detail, store.kakaoKey) { r, err ->
+            if (r == null) {
+                overlay.showResult("콜 확인", listOf((err ?: "계산에 실패했어요") to C.WARN), null, C.FG)
+                return@check
+            }
+            val lines = mutableListOf<Pair<String, Int>>()
+            lines += "금액  ${com.jongin.callcalc.core.formatNumber(detail.price)}원" to C.FG
+            lines += (r.pickup?.let { "픽업  🚗 ${it.minutes}분 (${it.km})  →  ${r.origin.name}" }
+                ?: "픽업  —  (${r.pickupNote})") to (if (r.pickup != null) C.FG else C.WARN)
+            lines += "운행  🚗 ${r.ride.minutes}분 (${r.ride.km})  →  ${r.dest.name}" to C.FG
+            detail.rideMin?.let { lines += "      (콜 앱 안내: 약 ${Store.plain(it)}분)" to C.GRAY }
+            lines += "합계  ${r.totalMin}분" to C.FG
+            val per = r.perMinute
+            val color = when {
+                per == null -> C.FG
+                store.goodAlertOn && per >= store.goodAlertMin -> C.GOOD
+                store.threshold != null && per < store.threshold!! -> C.GRAY
+                else -> C.FG
+            }
+            overlay.showResult("콜 확인 (실제 도로)", lines,
+                per?.let { "분당 ${com.jongin.callcalc.core.formatNumber(it)}원" }, color)
+        }
     }
 
     /** 표시가 나올 수 있는 범위: 읽은 영역(네모) 안, 없으면 화면 안 */
@@ -428,7 +531,7 @@ class CallReaderService : AccessibilityService() {
         private const val HEARTBEAT = 1000L      // 변화가 없어도 다시 확인하는 간격
         private const val OCR_POLL = 500L        // 화면 캡처 방식 확인 간격
         private const val SCROLL_SETTLE = 250L   // 스크롤이 멈췄다고 보는 시간
-        private const val TOUCH_DELAY = 150L     // 화면을 만진 뒤 읽기까지
+        private const val TOUCH_DELAY = 50L      // 화면을 만진 뒤 읽기까지 (0.15 → 0.05초)
         private const val CONFIRM_DELAY = 80L    // 확정하려고 한 번 더 읽기까지
         private const val TOUCH_FOLLOW_UP = 600L // 만진 뒤 한 번 더 확인
         @Volatile var instance: CallReaderService? = null
