@@ -106,8 +106,20 @@ object CallCheck {
                     else estimateRide(detail, err ?: "운행 길찾기 실패로 콜 앱 안내 시간")
                 }
             }
-            post(cur.copy(pickup = pickup, ride = ride, done = true))
+            post(cur.copy(pickup = pickup, ride = withVia(detail, ride), done = true))
         }
+    }
+
+    /**
+     * 경유지가 있는 콜: TMAP 은 출발 → 도착 직행만 계산하니까,
+     * 콜 앱이 안내한 시간이 더 길면 그걸 쓴다.
+     */
+    private fun withVia(detail: CallDetail, ride: Leg): Leg {
+        if (!detail.hasVia) return ride
+        val app = detail.rideMin?.toInt()
+        return if (app != null && (ride.min == null || app > ride.min))
+            ride.copy(min = app, note = listOfNotNull("경유지 있음 · 콜 앱 안내 ${app}분 사용 (더 김)", ride.note?.takeIf { ride.estimated }).joinToString(" · "))
+        else ride.copy(note = listOfNotNull("경유지 있음 · 직행 기준", ride.note).joinToString(" · "))
     }
 
     /** 픽업 추정: 직선 거리(내가 잰 것 또는 콜 앱이 알려 준 것) × 1.3, 시간은 직선 km × 1km당 분 */

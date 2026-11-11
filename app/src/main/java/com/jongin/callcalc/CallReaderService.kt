@@ -557,6 +557,7 @@ class CallReaderService : AccessibilityService() {
         val footer = listOfNotNull(
             totalKm?.let { "총 거리 ${km(it)}" },
             r.detail.rideMin?.let { "콜 앱 안내 운행 약 ${Store.plain(it)}분" },
+            if (r.detail.hasVia) "경유지 있음" else null,
             if (anyEstimate) "\"약\"은 추정값" else null,
             "아무 데나 누르면 닫혀요",
         ).joinToString(" · ")

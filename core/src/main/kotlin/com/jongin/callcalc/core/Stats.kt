@@ -108,6 +108,7 @@ data class CallDetail(
     val destination: String,
     val rideMin: Double?,   // 콜 앱이 알려 준 운행 시간 (참고용)
     val pickupKm: Double? = null, // 콜 앱이 알려 준 내 위치 → 출발지 거리 (직선, "이동 도보 78분 약 5.9km")
+    val hasVia: Boolean = false,  // "경유지 1" 처럼 중간에 들르는 곳이 있음
 )
 
 object DetailParser {
@@ -158,7 +159,7 @@ object DetailParser {
         val pickupKm = items
             .filter { it.centerY < start.top && (move == null || kotlin.math.abs(it.centerY - move.centerY) <= move.height) }
             .firstNotNullOfOrNull { Extract.km(it.text) }
-        return CallDetail(price, origin, destination, ride, pickupKm)
+        return CallDetail(price, origin, destination, ride, pickupKm, hasVia(items))
     }
 
     // "도보 1.7km / 약 34분" 처럼 맨 위에 있는 내 위치 → 출발지 거리 줄
@@ -195,19 +196,45 @@ object DetailParser {
         val destination = lines.drop(cut).joinToString(" ") { clean(it.text) }.trim()
         if (origin.isEmpty() || destination.isEmpty()) return null
         val rideMin = rideRe.find(ride.text)?.groupValues?.get(1)?.toDoubleOrNull()
-        return CallDetail(price, origin, destination, rideMin, Extract.km(move.text))
+        return CallDetail(price, origin, destination, rideMin, Extract.km(move.text), hasVia(items))
     }
 
     /**
      * 지도 검색용으로 점점 짧게: "수원시 권선구 호매실동 호매실능실마을19단지아파트"
      *  → [전체, "수원시 권선구 호매실동", "수원시 권선구", ...] 
      */
+    private fun hasVia(items: List<TextItem>) = items.any { it.text.contains("경유") }
+
+    /**
+     * 내비 검색용으로 주소 다듬기:
+     * - 특수 문자(♥ @ \ / | # * ~ ^ 등) 빼기, 점·쉼표는 띄어쓰기로
+     * - 아파트 동·호수(114동), 층, "근처" 빼기
+     * - 같은 단어가 연달아 나오면 하나만
+     */
+    fun cleanPlace(place: String): List<String> {
+        val t = place.replace(Regex("[.,·]"), " ")
+            .replace(Regex("[^가-힣0-9A-Za-z\\s-]"), " ")
+        val skip = Regex("""^(\d+-?\d*(동|호|층)|근처|-+)$""")
+        val words = t.split(Regex("\\s+")).filter { it.isNotBlank() && !skip.matches(it) }
+        return words.filterIndexed { i, w -> i == 0 || w != words[i - 1] }
+    }
+
+    /** 지역 이름 (시·군·구·읍·면·동·리·가) */
+    private val regionWord = Regex("""^[가-힣]{1,6}(특별시|광역시|시|군|구|읍|면|동|리|가)$""")
+
+    /**
+     * 지도 검색어 순서:
+     *  ① 다듬은 전체  ② 지역 + 건물 이름(마지막 단어)  ③ 뒤에서부터 한 단어씩 줄이기 (동 이름까지)
+     *  예) "시흥시 은행동 시흥은행동661.한양수자인@" → "시흥시 은행동 시흥은행동661 한양수자인", "시흥시 은행동 한양수자인", ...
+     */
     fun searchQueries(place: String): List<String> {
-        // 아파트 동·호수, 층, "근처", 말줄임은 빼고 찾기 (내비가 "114동"까지 붙이면 못 찾음)
-        val skip = Regex("""^(\d+[-]?\d*(동|호|층)|근처|…|\.\.\.)$""")
-        val words = place.replace("…", " ").split(' ').filter { it.isNotBlank() && !skip.matches(it) }
+        val words = cleanPlace(place)
+        if (words.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         out += words.joinToString(" ")
+        val region = words.takeWhile { regionWord.matches(it) }
+        val building = words.lastOrNull { !regionWord.matches(it) && !it.all { c -> c.isDigit() || c == '-' } }
+        if (region.isNotEmpty() && building != null) out += (region + building).joinToString(" ")
         for (n in words.size - 1 downTo 1) out += words.take(n).joinToString(" ")
         return out.toList()
     }

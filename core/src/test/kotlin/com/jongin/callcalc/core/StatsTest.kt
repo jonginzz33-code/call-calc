@@ -151,10 +151,36 @@ class DetailTest {
     @Test fun apartmentBuildingNumberIsDropped() {
         assertEquals("남양주시 호평동 호평동양파라곤아파트",
             DetailParser.searchQueries("남양주시 호평동 호평동양파라곤아파트 114동").first())
-        assertEquals("수원시 권선구 호매실동 호매실동 호매실로166번길",
+        assertEquals("수원시 권선구 호매실동 호매실로166번길",
             DetailParser.searchQueries("수원시 권선구 호매실동 호매실동 호매실로166번길 근처").first())
         // 동 이름(호평동)은 그대로
         assertTrue(DetailParser.searchQueries("남양주시 호평동").first().contains("호평동"))
+    }
+
+    @Test fun specialCharactersAreRemoved() {
+        val q1 = DetailParser.searchQueries("시흥시 은행동 시흥은행동661.한양수자인@")
+        assertEquals("시흥시 은행동 시흥은행동661 한양수자인", q1[0])
+        assertEquals("시흥시 은행동 한양수자인", q1[1])   // 지역 + 건물 이름
+        assertEquals("영종구 운남동 영종베르힐스카이시티아파트",
+            DetailParser.searchQueries("영종구 운남동 영종베르힐스카이시티아파트 \\").first())
+        assertEquals("시흥시 하중동 하중동관곡마을동아",
+            DetailParser.searchQueries("시흥시 하중동 ♥하중동관곡마을동아@").first())
+        assertEquals("거모동 1753-3", DetailParser.searchQueries("거모동 1753-3").first())
+    }
+
+    @Test fun viaIsDetected() {
+        val items = listOf(
+            TextItem("20,000", 340, 870, 625, 955),
+            TextItem("출발", 220, 1235, 285, 1275), TextItem("거모동 1753-3", 340, 1225, 700, 1285),
+            TextItem("약 21분 운행 | 경유지 1", 340, 1340, 810, 1395),
+            TextItem("도착", 220, 1458, 285, 1498), TextItem("시흥시 하중동", 340, 1450, 660, 1508),
+            TextItem("♥하중동관곡마을동아@", 340, 1520, 905, 1578),
+            TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        val d = assertNotNull(DetailParser.parse(items))
+        assertTrue(d.hasVia)
+        assertEquals(21.0, d.rideMin)
+        assertEquals("거모동 1753-3", d.origin)
     }
 
     @Test fun searchGetsShorter() {
