@@ -118,8 +118,9 @@ object DetailParser {
         val items = raw.filter { it.text.isNotBlank() }
         if (items.none { it.text.replace(" ", "").contains("수락") }) return null
         fun label(name: String) = items.filter { it.text.trim() == name }.minByOrNull { it.left }
-        val start = label("출발") ?: return null
-        val end = label("도착") ?: return null
+        val start = label("출발")
+        val end = label("도착")
+        if (start == null || end == null) return parseStacked(items)
 
         // 금액: 쉼표 숫자 중 글씨가 가장 큰 것 (실수익)
         val price = items.mapNotNull { it -> Extract.money(it.text)?.let { v -> v to it.height } }
@@ -145,6 +146,43 @@ object DetailParser {
             .filter { it.centerY < start.top && (move == null || kotlin.math.abs(it.centerY - move.centerY) <= move.height) }
             .firstNotNullOfOrNull { Extract.km(it.text) }
         return CallDetail(price, origin, destination, ride, pickupKm)
+    }
+
+    // "도보 1.7km / 약 34분" 처럼 맨 위에 있는 내 위치 → 출발지 거리 줄
+    private val moveRe = Regex("""\d+(?:\.\d+)?\s*k?m\s*/""", RegexOption.IGNORE_CASE)
+
+    /**
+     * 두 번째 모양 (출발/도착 글자 없이 위아래로 쌓인 창):
+     *   [제휴] / 도보 1.7km / 약 34분 / 출발지 주소(1~2줄) / ⌄ / ♥ 도착지 주소 / 약 6분 운행 / 실제수익 12,000 / [닫기] [수락]
+     * 거리 줄과 운행 줄 사이의 주소 줄들을, 가장 크게 벌어진 틈(꺾쇠 자리)에서 나눠 위 = 출발지, 아래 = 도착지.
+     */
+    private fun parseStacked(items: List<TextItem>): CallDetail? {
+        val move = items.filter { moveRe.containsMatchIn(it.text) && Extract.km(it.text) != null }.minByOrNull { it.top }
+            ?: return null
+        val ride = items.filter { rideRe.containsMatchIn(it.text) && it.top > move.bottom }.minByOrNull { it.top }
+            ?: return null
+        val price = items.filter { it.top > move.bottom }
+            .mapNotNull { Extract.money(it.text)?.let { v -> v to it.height } }
+            .maxByOrNull { it.second }?.first ?: return null
+        val hangul = Regex("[가-힣]")
+        val lines = items
+            .filter { it.centerY > move.bottom && it.centerY < ride.top }
+            .filter { hangul.containsMatchIn(it.text) }       // 꺾쇠(⌄, V) 같은 기호 줄은 빼기
+            .sortedWith(compareBy({ it.top }, { it.left }))
+        if (lines.size < 2) return null
+        // 가장 큰 틈에서 나누기
+        var cut = 1
+        var gap = Int.MIN_VALUE
+        for (i in 1 until lines.size) {
+            val g = lines[i].top - lines[i - 1].bottom
+            if (g > gap) { gap = g; cut = i }
+        }
+        fun clean(t: String) = t.replace(Regex("^[^가-힣0-9]+"), "").trim() // 앞의 ♥ 같은 기호 빼기
+        val origin = lines.take(cut).joinToString(" ") { clean(it.text) }.trim()
+        val destination = lines.drop(cut).joinToString(" ") { clean(it.text) }.trim()
+        if (origin.isEmpty() || destination.isEmpty()) return null
+        val rideMin = rideRe.find(ride.text)?.groupValues?.get(1)?.toDoubleOrNull()
+        return CallDetail(price, origin, destination, rideMin, Extract.km(move.text))
     }
 
     /**

@@ -274,7 +274,7 @@ class CallReaderService : AccessibilityService() {
             if (detail != null) {
                 prefetch(detail)
                 source = "접근성"
-                show(emptyList(), ms, "상세 화면 · [콜 확인]으로 픽업 거리 보기")
+                show(emptyList(), ms, "상세 화면 · [콜 확인]으로 픽업·운행 계산")
                 idle(HEARTBEAT)
                 return
             }
@@ -312,7 +312,8 @@ class CallReaderService : AccessibilityService() {
                 res is CaptureService.Result.Items -> {
                     source = "캡처"
                     lastItems = res.items
-                    DetailParser.parse(res.items)?.let { prefetch(it) }
+                    val capDetail = DetailParser.parse(res.items)
+                    capDetail?.let { prefetch(it) }
                     val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(res.items)))
                     val manual = curPkg?.let { store.region(it) } != null
                     if (rows.isEmpty() && listTop != null && !manual) {
@@ -322,7 +323,11 @@ class CallReaderService : AccessibilityService() {
                         ocrAgain = true
                     } else {
                         if (rows.isNotEmpty()) updateListTop(rows)
-                        show(rows, res.ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (화면 캡처)" else null)
+                        show(rows, res.ms, when {
+                            rows.isNotEmpty() -> null
+                            capDetail != null -> "상세 화면 · [콜 확인]으로 픽업·운행 계산"
+                            else -> "콜을 찾지 못했어요 (화면 캡처)"
+                        })
                     }
                 }
                 res is CaptureService.Result.Unchanged -> if (!confirmPending()) lastShown?.let { (out, banner) ->

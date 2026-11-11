@@ -85,6 +85,45 @@ class DetailTest {
         assertEquals(5.4, d.pickupKm)
     }
 
+    @Test fun readsStackedDetail() {
+        // 두 번째 모양: 사용자가 보낸 화면 1
+        val a = listOf(
+            TextItem("제휴", 550, 435, 698, 510),
+            TextItem("도보 1.7km / 약 34분", 318, 605, 912, 675),
+            TextItem("시흥시 거모동 고구려", 418, 712, 830, 765),
+            TextItem("♥ 시흥시 거모동 시흥군자우체국", 300, 898, 945, 955),
+            TextItem("약 6분 운행", 512, 1068, 738, 1120),
+            TextItem("카드 | 확정", 320, 1275, 470, 1320), TextItem("실제수익", 520, 1278, 640, 1318),
+            TextItem("12,000", 665, 1260, 912, 1335),
+            TextItem("닫기", 305, 1520, 390, 1575), TextItem("수락", 698, 1520, 788, 1575),
+        )
+        val d1 = assertNotNull(DetailParser.parse(a))
+        assertEquals(12000.0, d1.price)
+        assertEquals("시흥시 거모동 고구려", d1.origin)
+        assertEquals("시흥시 거모동 시흥군자우체국", d1.destination)
+        assertEquals(6.0, d1.rideMin)
+        assertEquals(1.7, d1.pickupKm)
+
+        // 화면 2: 출발지가 두 줄, 꺾쇠가 "V" 로 읽힘
+        val b = listOf(
+            TextItem("제휴", 550, 400, 698, 475),
+            TextItem("도보 2.3km / 약 45분", 318, 572, 912, 640),
+            TextItem("안산시단원구 원곡동", 422, 678, 826, 732),
+            TextItem("안산다문화이주민플러스센터", 342, 745, 906, 800),
+            TextItem("V", 592, 848, 656, 885),
+            TextItem("안산시상록구 본오동 본오동 772-3", 280, 932, 966, 990),
+            TextItem("약 22분 운행", 498, 1100, 750, 1155),
+            TextItem("현금 | 확정", 320, 1310, 470, 1355), TextItem("16,000", 665, 1295, 912, 1370),
+            TextItem("닫기", 305, 1555, 390, 1610), TextItem("수락", 698, 1555, 788, 1610),
+        )
+        val d2 = assertNotNull(DetailParser.parse(b))
+        assertEquals(16000.0, d2.price)
+        assertEquals("안산시단원구 원곡동 안산다문화이주민플러스센터", d2.origin)
+        assertEquals("안산시상록구 본오동 본오동 772-3", d2.destination)
+        assertEquals(22.0, d2.rideMin)
+        assertEquals(2.3, d2.pickupKm)
+    }
+
     @Test fun listScreenIsNotDetail() {
         assertNull(DetailParser.parse(Sample.screen()))
     }
