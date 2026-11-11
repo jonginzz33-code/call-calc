@@ -40,6 +40,11 @@ class CallReaderService : AccessibilityService() {
     private var overlayVisible = false
 
     private val refreshTask = Runnable { refresh() }
+    // 터치 직후 한 번 더 (화면이 바뀌는 데 시간이 걸리는 경우)
+    private val touchFollowUp = Runnable { schedule(0) }
+
+    // 콜 목록이 시작되는 높이 (화면 좌표). 이보다 위는 OCR 안 함. 모르면 null
+    private var listTop: Int? = null
 
     override fun onServiceConnected() {
         store = Store(this)
@@ -51,6 +56,7 @@ class CallReaderService : AccessibilityService() {
                 schedule(50)
             },
             onToggle = { schedule(30) },
+            onScreenTouch = { onScreenTouch() },
         )
         instance = this
         schedule(300)
@@ -63,7 +69,7 @@ class CallReaderService : AccessibilityService() {
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 // 다른 화면으로 넘어가면 (목록 새로고침, 상세 화면 등) 기억을 지운다
-                if (target) memory.clear()
+                if (target) { memory.clear(); listTop = null }
                 schedule(60)
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> if (target) {
@@ -108,6 +114,13 @@ class CallReaderService : AccessibilityService() {
 
     fun captureStateChanged() = schedule(100)
 
+    /** 화면 어디든 만지면 (손을 떼는 시점은 알 수 없어서) 조금 뒤 읽고, 한 번 더 확인 */
+    private fun onScreenTouch() {
+        schedule(TOUCH_DELAY)
+        handler.removeCallbacks(touchFollowUp)
+        handler.postDelayed(touchFollowUp, TOUCH_FOLLOW_UP)
+    }
+
     private fun hideLabels() {
         overlay.hideLabels()
         overlayVisible = false
@@ -137,7 +150,7 @@ class CallReaderService : AccessibilityService() {
             if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg }
             return
         }
-        if (lastPkg != pkg) { memory.clear(); lastPkg = pkg }
+        if (lastPkg != pkg) { memory.clear(); listTop = null; lastPkg = pkg }
         overlay.showBubble()
         if (!store.overlayOn) { hideLabels(); schedule(HEARTBEAT); return }
         val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
@@ -169,14 +182,23 @@ class CallReaderService : AccessibilityService() {
         if (ocrBusy) { ocrAgain = true; return }
         ocrBusy = true
         val startedAt = SystemClock.uptimeMillis()
-        cap.captureAndRead(overlay.ownRects()) { res ->
+        val cropTop = listTop ?: statusBarHeight()
+        cap.captureAndRead(overlay.ownRects(), cropTop) { res ->
             ocrBusy = false
             val scrolledMeanwhile = lastScrollAt > startedAt
             when {
                 scrolledMeanwhile -> schedule(SCROLL_SETTLE, postpone = true)
                 res is CaptureService.Result.Items -> {
                     val rows = LiveRules.dropEdgeFailures(CallParser.parse(res.items))
-                    show(rows, res.ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (화면 캡처)" else null)
+                    if (rows.isEmpty() && listTop != null) {
+                        // 잘라 읽어서 못 찾았을 수 있음 → 다음엔 화면 전체로
+                        listTop = null
+                        cap.forgetLast()
+                        ocrAgain = true
+                    } else {
+                        if (rows.isNotEmpty()) updateListTop(rows)
+                        show(rows, res.ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (화면 캡처)" else null)
+                    }
                 }
                 res is CaptureService.Result.Unchanged -> lastShown?.let { (out, banner) ->
                     if (store.overlayOn && !overlayVisible) { overlay.showLabels(out.rows, banner); overlayVisible = true }
@@ -188,6 +210,21 @@ class CallReaderService : AccessibilityService() {
             // 화면 캡처는 이벤트가 안 오는 변화(사진 넘기기 등)도 있어서 더 자주 확인 (같은 화면이면 OCR 안 함)
             if (ocrAgain) { ocrAgain = false; schedule(30) } else schedule(OCR_POLL)
         }
+    }
+
+    /**
+     * 찾은 콜 중 가장 위 줄보다 한 줄 높이만큼 위를 목록 시작으로 기억 (더 위로만 넓힘).
+     * 스크롤해도 목록 시작 높이는 그대로라서, 다음부터는 그 아래만 OCR 한다.
+     */
+    private fun updateListTop(rows: List<CallRow>) {
+        val rowH = rows.map { it.bottom - it.top }.average()
+        val est = (rows.minOf { it.top } - rowH).toInt().coerceAtLeast(statusBarHeight())
+        listTop = minOf(listTop ?: est, est)
+    }
+
+    private fun statusBarHeight(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
     }
 
     private fun show(rows: List<CallRow>, readMs: Long, note: String?) {
@@ -255,6 +292,8 @@ class CallReaderService : AccessibilityService() {
         private const val HEARTBEAT = 1000L      // 변화가 없어도 다시 확인하는 간격
         private const val OCR_POLL = 500L        // 화면 캡처 방식 확인 간격
         private const val SCROLL_SETTLE = 250L   // 스크롤이 멈췄다고 보는 시간
+        private const val TOUCH_DELAY = 150L     // 화면을 만진 뒤 읽기까지
+        private const val TOUCH_FOLLOW_UP = 600L // 만진 뒤 한 번 더 확인
         @Volatile var instance: CallReaderService? = null
     }
 }

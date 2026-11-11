@@ -33,6 +33,7 @@ class Overlay(
     private val store: Store,
     private val onLongPress: () -> Unit,
     private val onToggle: () -> Unit,
+    private val onScreenTouch: () -> Unit = {},
 ) {
     private val wm = svc.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -87,9 +88,16 @@ class Overlay(
      * 콜 줄마다 표시를 붙인다. 좌표는 화면 기준 (CallRow.slot*).
      * banner 는 화면 위쪽 작은 요약 (계산식, 최고, 속도, 안내).
      */
+    private val labelViews = mutableListOf<TextView>()
+    private var bannerView: TextView? = null
+
+    /**
+     * 콜 줄마다 표시를 붙인다. 좌표는 화면 기준 (CallRow.slot*).
+     * banner 는 화면 위쪽 작은 요약 (계산식, 최고, 속도, 안내).
+     * 있던 표시는 지우지 않고 글자·색·위치만 바꿔서 깜빡이지 않게 한다.
+     */
     fun showLabels(rows: List<EvaluatedRow>, banner: String?) {
         val r = ensureRoot()
-        r.removeAllViews()
         shownRects.clear()
         r.visibility = View.VISIBLE
         val loc = IntArray(2)
@@ -97,8 +105,16 @@ class Overlay(
         val textSp = store.overlayTextSp.toFloat()
         val gap = dp(6)
 
-        for (e in rows) {
-            val v = label(e, textSp)
+        while (labelViews.size < rows.size) {
+            val v = TextView(svc)
+            labelViews += v
+            r.addView(v, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+        labelViews.forEachIndexed { i, v ->
+            val e = rows.getOrNull(i)
+            if (e == null) { v.visibility = View.GONE; return@forEachIndexed }
+            style(v, e, textSp)
+            v.visibility = View.VISIBLE
             v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
             val w = v.measuredWidth
             val h = v.measuredHeight
@@ -107,36 +123,44 @@ class Overlay(
             var x = row.slotRight - w - gap
             if (x < row.slotLeft + gap) x = row.slotLeft + gap
             val y = row.slotY - h / 2
-            r.addView(v, FrameLayout.LayoutParams(w, h).apply {
+            v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply {
+                width = w; height = h
                 leftMargin = x - loc[0]
                 topMargin = y - loc[1]
-            })
+            }
             shownRects += Rect(x, y, x + w, y + h)
         }
 
-        if (!banner.isNullOrBlank()) {
-            val b = TextView(svc).apply {
-                text = banner
-                textSize = 13f
-                setTextColor(Color.WHITE)
-                setPadding(dp(10), dp(4), dp(10), dp(4))
-                background = svc.roundBg(Color.parseColor("#E6161A21"), Color.parseColor("#4C8FE0"), 1, 10)
-                maxLines = 2
-            }
+        val b = bannerView ?: TextView(svc).apply {
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = svc.roundBg(Color.parseColor("#E6161A21"), Color.parseColor("#4C8FE0"), 1, 10)
+            maxLines = 2
+            bannerView = this
+            r.addView(this, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+        if (banner.isNullOrBlank()) {
+            b.visibility = View.GONE
+        } else {
+            b.text = banner
+            b.visibility = View.VISIBLE
             b.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
             val screenW = svc.resources.displayMetrics.widthPixels
             val w = minOf(b.measuredWidth, screenW - dp(24))
             val x = (screenW - w) / 2
             val y = statusBarHeight() + dp(2)
-            r.addView(b, FrameLayout.LayoutParams(w, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            b.layoutParams = (b.layoutParams as FrameLayout.LayoutParams).apply {
+                width = w
                 leftMargin = x - loc[0]
                 topMargin = y - loc[1]
-            })
+            }
             shownRects += Rect(x, y, x + w, y + b.measuredHeight + dp(20))
         }
+        r.requestLayout()
     }
 
-    private fun label(e: EvaluatedRow, textSp: Float): TextView {
+    private fun style(v: TextView, e: EvaluatedRow, textSp: Float) {
         val fail = e.status == RowStatus.READ_FAIL || e.status == RowStatus.IMPOSSIBLE
         val num = e.value?.let { LiveRules.overlayNumber(it) }
         val region = e.regionColor
@@ -149,7 +173,7 @@ class Overlay(
             region == RegionColor.GREEN -> Quad("👍 $num", C.GOOD, C.regionBg(RegionColor.GREEN), C.regionBg(RegionColor.GREEN))
             else -> Quad(num ?: "", Color.WHITE, Color.parseColor("#161A21"), Color.parseColor("#4C8FE0"))
         }
-        return TextView(svc).apply {
+        v.apply {
             text = txt
             textSize = textSp
             setTypeface(typeface, Typeface.BOLD)
@@ -163,7 +187,7 @@ class Overlay(
     private data class Quad(val text: String, val fg: Int, val bg: Int, val line: Int)
 
     fun hideLabels() {
-        root?.let { it.removeAllViews(); it.visibility = View.GONE }
+        root?.visibility = View.GONE
         shownRects.clear()
     }
 
@@ -190,7 +214,9 @@ class Overlay(
         val lp = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            // FLAG_WATCH_OUTSIDE_TOUCH: 화면 어디를 만져도 "만졌다"는 신호만 받음 (위치는 모름, 터치는 그대로 아래 앱으로)
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -207,6 +233,7 @@ class Overlay(
         }
         b.setOnTouchListener { v, ev ->
             when (ev.actionMasked) {
+                MotionEvent.ACTION_OUTSIDE -> { onScreenTouch(); return@setOnTouchListener false }
                 MotionEvent.ACTION_DOWN -> {
                     downX = ev.rawX; downY = ev.rawY; startX = lp.x; startY = lp.y
                     moved = false; downAt = SystemClock.uptimeMillis()
@@ -269,6 +296,8 @@ class Overlay(
         hideBubble()
         root?.let { runCatching { wm.removeView(it) } }
         root = null
+        labelViews.clear()
+        bannerView = null
     }
 
     private fun statusBarHeight(): Int {

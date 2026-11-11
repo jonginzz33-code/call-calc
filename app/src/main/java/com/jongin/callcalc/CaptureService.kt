@@ -126,16 +126,27 @@ class CaptureService : Service() {
     }
 
     /**
-     * 지금 화면을 한 장 찍어 글자를 읽는다. exclude: 우리 표시가 떠 있는 자리 (화면 좌표) → 그 자리 글자는 버림.
+     * 지금 화면을 한 장 찍어 글자를 읽는다.
+     * - cropTop: 이 높이(화면 좌표)보다 위는 읽지 않음 (상태바·위쪽 필터 등 → OCR 빨라짐)
+     * - 아래쪽 내비게이션 바도 빼고 읽음
+     * - exclude: 우리 표시가 떠 있는 자리 → 그 자리 글자는 버리고, 화면 변화 판단에서도 뺌
      * 결과는 메인 스레드로 돌려준다.
      */
-    fun captureAndRead(exclude: List<Rect>, done: (Result) -> Unit) {
+    fun captureAndRead(exclude: List<Rect>, cropTop: Int, done: (Result) -> Unit) {
         val h = bg ?: return done(Result.Error("캡처 준비 안 됨"))
         h.post {
             val t0 = SystemClock.elapsedRealtime()
-            val bmp = try { grab() } catch (e: Exception) { null }
-            if (bmp == null) { main.post { done(Result.Error("화면을 아직 못 받았어요")) }; return@post }
-            val (hash, dark) = fingerprint(bmp)
+            val full = try { grab() } catch (e: Exception) { null }
+            if (full == null) { main.post { done(Result.Error("화면을 아직 못 받았어요")) }; return@post }
+            val top = (cropTop * scale).toInt().coerceIn(0, capH - 1)
+            val bottom = (capH - navBarHeight() * scale).toInt().coerceIn(top + 1, capH)
+            val bmp = if (top == 0 && bottom == capH) full
+            else Bitmap.createBitmap(full, 0, top, capW, bottom - top).also { full.recycle() }
+            // 우리 표시 자리 (잘라 낸 사진 좌표)
+            val ownInCrop = exclude.map {
+                Rect((it.left * scale).toInt(), (it.top * scale).toInt() - top, (it.right * scale).toInt(), (it.bottom * scale).toInt() - top)
+            }
+            val (hash, dark) = fingerprint(bmp, ownInCrop)
             if (dark) { bmp.recycle(); main.post { done(Result.Black) }; return@post }
             if (hash == lastHash) { bmp.recycle(); main.post { done(Result.Unchanged) }; return@post }
             Ocr.recognizer.process(InputImage.fromBitmap(bmp, 0))
@@ -145,7 +156,10 @@ class CaptureService : Service() {
                     val items = text.textBlocks.flatMap { b ->
                         b.lines.mapNotNull { l ->
                             val bb = l.boundingBox ?: return@mapNotNull null
-                            val rr = Rect((bb.left * inv).toInt(), (bb.top * inv).toInt(), (bb.right * inv).toInt(), (bb.bottom * inv).toInt())
+                            val rr = Rect(
+                                (bb.left * inv).toInt(), ((bb.top + top) * inv).toInt(),
+                                (bb.right * inv).toInt(), ((bb.bottom + top) * inv).toInt(),
+                            )
                             if (exclude.any { Rect.intersects(it, rr) }) null
                             else TextItem(l.text, rr.left, rr.top, rr.right, rr.bottom)
                         }
@@ -155,6 +169,11 @@ class CaptureService : Service() {
                 }
                 .addOnFailureListener { bmp.recycle(); done(Result.Error(it.message ?: "OCR 실패")) }
         }
+    }
+
+    private fun navBarHeight(): Int {
+        val id = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
     }
 
     /** 다음 읽기는 화면이 같아도 OCR 하도록 (표시를 다시 그려야 할 때) */
@@ -183,7 +202,7 @@ class CaptureService : Service() {
     }
 
     /** 작은 지문(격자 샘플)과 "거의 검은 화면인지" */
-    private fun fingerprint(b: Bitmap): Pair<Long, Boolean> {
+    private fun fingerprint(b: Bitmap, skip: List<Rect>): Pair<Long, Boolean> {
         var hash = 1125899906842597L
         var maxLum = 0
         val stepX = maxOf(1, b.width / 36)
@@ -192,6 +211,7 @@ class CaptureService : Service() {
         while (y < b.height) {
             var x = 0
             while (x < b.width) {
+                if (skip.any { it.contains(x, y) }) { x += stepX; continue }
                 val c = b.getPixel(x, y)
                 hash = 31 * hash + (c and 0xF0F0F0)
                 val lum = ((c shr 16) and 255) + ((c shr 8) and 255) + (c and 255)
