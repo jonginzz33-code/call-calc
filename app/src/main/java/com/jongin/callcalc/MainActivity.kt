@@ -113,40 +113,39 @@ class MainActivity : AppCompatActivity() {
         scrollPage(root)
 
         val header = hbox()
-        header.addView(text("콜 계산기", 26f, bold = true), lp(0, weight = 1f))
-        header.addView(text("v" + versionName(), 14f, C.SUB))
+        header.addView(text("콜 계산기", 28f, bold = true), lp(0, weight = 1f))
+        header.addView(text("v" + versionName(), 15f, C.DIM))
         root.addView(header)
-        root.addView(text("콜 목록 스크린샷을 고르면 줄마다 계산값과 색을 보여 줘요.", 14f, C.SUB).margins(this, top = 4))
 
-        val row1 = hbox().apply { margins(this@MainActivity, top = 16) }
-        row1.addView(button("스크린샷 고르기") {
+        val row1 = hbox().apply { margins(this@MainActivity, top = 14) }
+        row1.addView(button("📷 스크린샷 고르기", big = true) {
             pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }, lp(0, weight = 1f))
-        row1.addView(button("설정", outlined = true) {
+        row1.addView(button("⚙ 설정", outlined = true, big = true) {
             startActivity(Intent(this, SettingsActivity::class.java))
-        }.margins(this, start = 8))
+        }, lp(dp(110)).also { it.marginStart = dp(8) })
         root.addView(row1)
 
-        root.addView(button("예시 3줄로 해 보기", outlined = true) { runSample() })
-
-        formulaView = text("", 15f, C.ACCENT).apply {
+        // 계산식 칸: 누르면 바로 바꾸기
+        formulaView = text("", 17f, C.ACCENT).apply {
             background = roundBg(C.PANEL)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
             setOnClickListener { chooseFormula() }
         }
         root.addView(formulaView.margins(this, top = 12))
-        infoView = text("", 13f, C.SUB).apply { margins(this@MainActivity, top = 6) }
+        infoView = text("", 16f, C.SUB).apply { margins(this@MainActivity, top = 10) }
         root.addView(infoView)
 
-        speedView = text("", 13f, C.SUB).apply { margins(this@MainActivity, top = 10); visibility = View.GONE }
-        root.addView(speedView)
-        statusView = text("", 15f, C.FG).apply { margins(this@MainActivity, top = 10) }
+        statusView = text("", 16f, C.FG).apply { margins(this@MainActivity, top = 6) }
         root.addView(statusView)
 
         resultBox = vbox()
-        root.addView(resultBox, lp().also { it.topMargin = dp(8) })
+        root.addView(resultBox, lp().also { it.topMargin = dp(4) })
 
-        rawToggle = text("", 15f, C.ACCENT).apply {
+        speedView = text("", 14f, C.DIM).apply { margins(this@MainActivity, top = 12); visibility = View.GONE }
+        root.addView(speedView)
+
+        rawToggle = text("", 16f, C.ACCENT).apply {
             setPadding(0, dp(14), 0, dp(6))
             visibility = View.GONE
             setOnClickListener { rawOpen = !rawOpen; renderRaw() }
@@ -167,7 +166,9 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(preview, lp().also { it.topMargin = dp(16) })
 
-        root.addView(text("이 앱은 읽고 계산해서 보여 주기만 해요. 콜 수락은 직접 누르세요.", 12f, C.GRAY).margins(this, top = 24))
+        root.addView(button("예시 3줄로 해 보기", outlined = true) { runSample() }.margins(this, top = 20))
+
+        root.addView(text("이 앱은 읽고 계산해서 보여 주기만 해요. 콜 수락은 직접 누르세요.", 13f, C.GRAY).margins(this, top = 24))
         showFormula()
         statusView.text = "아직 읽은 화면이 없어요."
     }
@@ -180,12 +181,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun showFormula() {
         val f = store.selectedFormula
-        formulaView.text = "계산식: ${f.name}   ${pretty(f.expr)}   ▾"
+        formulaView.text = android.text.SpannableStringBuilder().apply {
+            append("계산식  ")
+            val st = length
+            append(pretty(f.expr))
+            setSpan(android.text.style.StyleSpan(Typeface.BOLD), st, length, 0)
+            setSpan(android.text.style.ForegroundColorSpan(C.FG), st, length, 0)
+            append("   바꾸기 ▾")
+        }
         val parts = mutableListOf<String>()
-        parts += "기준 단가: " + (store.threshold?.let { formatNumber(it) } ?: "없음")
-        if (store.minPriceOn && store.minPrice != null) parts += "최소 금액: " + formatNumber(store.minPrice!!) + "원"
+        parts += "기준 단가 " + (store.threshold?.let { formatNumber(it) } ?: "없음")
+        if (store.minPriceOn && store.minPrice != null) parts += "최소 " + formatNumber(store.minPrice!!) + "원"
         parts += "지역 단어 ${store.words.size}개"
-        infoView.text = parts.joinToString("  ·  ")
+        infoView.text = parts.joinToString(" · ")
     }
 
     /** 계산식 빠르게 바꾸기 */
@@ -264,9 +272,9 @@ class MainActivity : AppCompatActivity() {
             statusView.setTextColor(C.WARN)
         } else {
             val fails = out.rows.count { it.status == RowStatus.READ_FAIL }
-            var s = "콜 ${out.rows.size}개를 찾았어요."
-            if (fails > 0) s += " (읽기 실패 ${fails}개)"
-            if (out.hiddenByMinPrice > 0) s += " 최소 금액 미만 ${out.hiddenByMinPrice}개는 숨겼어요."
+            var s = "콜 ${out.rows.size}개"
+            if (fails > 0) s += " · 읽기 실패 ${fails}개"
+            if (out.hiddenByMinPrice > 0) s += " · 싼 콜 ${out.hiddenByMinPrice}개 숨김"
             statusView.text = s
             statusView.setTextColor(C.FG)
             out.rows.forEachIndexed { i, e -> resultBox.addView(card(i, e)) }
@@ -279,7 +287,7 @@ class MainActivity : AppCompatActivity() {
             parts += "줄 찾기 ${lastParseMs}ms"
             parts += "계산 ${calcMs}ms"
             val total = (lastOcrMs.coerceAtLeast(0)) + lastParseMs + calcMs
-            speedView.text = "⏱ " + parts.joinToString(" · ") + "\n   읽기+계산 합계 ${total}ms (목표: OCR 방식 500ms 이내)"
+            speedView.text = "⏱ " + parts.joinToString(" · ") + "\n   합계 ${total}ms (목표 500ms 이내)"
             speedView.visibility = View.VISIBLE
         } else {
             speedView.visibility = View.GONE
@@ -291,61 +299,71 @@ class MainActivity : AppCompatActivity() {
     private fun card(index: Int, e: EvaluatedRow): View {
         val r = e.row
         val region = e.regionColor
-        val fill = region?.let { C.regionBg(it) } ?: C.PANEL
-        val (stroke, strokeDp) = when {
-            e.best -> C.GOOD to 3
-            region == RegionColor.RED -> C.BAD to 2
-            else -> C.LINE to 1
+        val fail = e.status == RowStatus.READ_FAIL || e.status == RowStatus.IMPOSSIBLE
+        // 바탕·테두리: 제일 좋음(초록 테두리) > 빨강 지역 > 기타 지역색 > 기본
+        val fill = when {
+            e.best -> C.regionBg(RegionColor.GREEN)
+            region != null -> C.regionBg(region)
+            fail -> android.graphics.Color.parseColor("#1A1D22")
+            else -> C.PANEL
+        }
+        val bg = when {
+            e.best -> roundBg(fill, C.regionLine(RegionColor.GREEN), 3, 16)
+            region == RegionColor.RED -> roundBg(fill, C.regionLine(RegionColor.RED), 3, 16)
+            fail -> roundBg(fill, C.WARN, 2, 16, dashed = true)
+            else -> roundBg(fill, fill, 3, 16)
         }
         val box = hbox().apply {
-            background = roundBg(fill, stroke, strokeDp)
-            setPadding(dp(12), dp(12), dp(14), dp(12))
-            gravity = Gravity.TOP
+            background = bg
+            setPadding(dp(4), dp(12), dp(12), dp(12))
             layoutParams = lp().also { it.setMargins(0, dp(6), 0, dp(6)) }
         }
-        // 기준 미달은 카드 전체를 흐리게
-        if (e.status == RowStatus.BELOW) box.alpha = 0.55f
+        if (e.status == RowStatus.BELOW) box.alpha = 0.6f
 
-        // 왼쪽: 큰 계산값 + 별표
-        val left = vbox().apply { gravity = Gravity.CENTER_HORIZONTAL }
-        val valueColor = when (e.status) {
-            RowStatus.OK -> if (e.best) C.GOOD else C.FG
-            RowStatus.BELOW -> C.GRAY
-            RowStatus.READ_FAIL -> C.WARN
-            RowStatus.IMPOSSIBLE -> C.SUB
+        // 왼쪽: 별표 + 큰 계산값 + 한마디
+        val valueColor = when {
+            fail -> C.WARN
+            e.status == RowStatus.BELOW -> C.GRAY
+            e.best -> C.GOOD
+            region == RegionColor.RED -> android.graphics.Color.parseColor("#FFB3B3")
+            else -> C.FG
         }
-        val big = e.status == RowStatus.OK || e.status == RowStatus.BELOW
-        left.addView(text(if (e.best) "★" else "${index + 1}", if (e.best) 22f else 14f, if (e.best) C.GOOD else C.SUB, bold = true).apply {
+        val left = vbox().apply { gravity = Gravity.CENTER }
+        if (e.best) left.addView(text("★", 30f, C.GOOD, bold = true).apply { gravity = Gravity.CENTER })
+        val big = !fail && !e.valueHidden
+        left.addView(text(if (fail) e.valueText.replace(" ", "\n") else e.valueText, if (big) 40f else 22f, valueColor, bold = true).apply {
             gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
         })
-        left.addView(text(e.valueText, if (big) 28f else 16f, valueColor, bold = true).apply { gravity = Gravity.CENTER })
         val tag = when {
             e.best -> "제일 좋음"
+            region == RegionColor.RED -> "가면 안 됨"
             e.status == RowStatus.BELOW -> "기준 미달"
             else -> ""
         }
-        if (tag.isNotEmpty()) left.addView(text(tag, 12f, valueColor).apply { gravity = Gravity.CENTER })
-        box.addView(left, lp(dp(104)))
+        val tagColor = if (region == RegionColor.RED && !e.best) C.BAD else valueColor
+        if (tag.isNotEmpty()) left.addView(text(tag, 15f, tagColor, bold = true).apply { gravity = Gravity.CENTER }.margins(this, top = 4))
+        box.addView(left, lp(dp(120), android.view.ViewGroup.LayoutParams.MATCH_PARENT))
 
-        // 오른쪽: A·B·C, 출발→도착, 지역 경고
-        val right = vbox().apply { setPadding(dp(10), 0, 0, 0) }
-        val a = r.a?.let { "${Store.plain(it)}km" } ?: "km ?"
-        val b = r.b?.let { "${Store.plain(it)}분" } ?: "분 ?"
-        val c = r.c?.let { "${formatNumber(it)}원" } ?: "금액 ?"
-        right.addView(text("A $a   B $b   C $c", 15f, C.FG, bold = true))
+        // 오른쪽: 금액 크게, 거리·시간, 출발→도착, 지역 경고
+        val right = vbox()
+        right.addView(text(r.c?.let { "${formatNumber(it)}원" } ?: "금액 ?", 22f, C.FG, bold = true))
+        val a = r.a?.let { "${Store.plain(it)}km" } ?: "?km"
+        val b = r.b?.let { "${Store.plain(it)}분" } ?: "?분"
+        val pay = if (r.payment.isNotBlank()) " · ${r.payment}" else ""
+        right.addView(text("$a · $b$pay", 16f, C.SUB).margins(this, top = 2))
         val route = listOf(r.origin, r.destination).filter { it.isNotBlank() }.joinToString(" → ")
-        val pay = if (r.payment.isNotBlank()) "  ·  ${r.payment}" else ""
-        if (route.isNotBlank() || pay.isNotBlank()) right.addView(text(route + pay, 14f, C.SUB).margins(this, top = 2))
+        if (route.isNotBlank()) right.addView(text(route, 16f, C.SUB).margins(this, top = 4))
         if (e.status == RowStatus.READ_FAIL) {
-            right.addView(text("못 읽은 값: ${r.missingText()}", 13f, C.WARN).margins(this, top = 4))
+            right.addView(text("못 읽은 값: ${r.missingText()}", 16f, C.WARN, bold = true).margins(this, top = 4))
         }
         for (w in e.matched) {
             val memo = if (w.memo.isNotBlank()) ": ${w.memo}" else ""
-            right.addView(text("${C.regionIcon(w.color)} ${w.word}$memo", 14f, C.region(w.color), bold = w.color == RegionColor.RED)
-                .margins(this, top = 4))
+            right.addView(text("${C.regionIcon(w.color)} ${w.word}$memo", 17f, C.region(w.color), bold = true).margins(this, top = 6))
         }
         if (index in openRows) {
-            right.addView(text(r.rawLines.joinToString("\n"), 12f, C.GRAY).apply {
+            right.addView(text(r.rawLines.joinToString("\n"), 13f, C.DIM).apply {
                 typeface = Typeface.MONOSPACE
             }.margins(this, top = 6))
         }

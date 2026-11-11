@@ -46,28 +46,29 @@ class SettingsActivity : AppCompatActivity() {
         scrollPage(root)
 
         val header = hbox()
-        header.addView(text("설정", 24f, bold = true), lp(0, weight = 1f))
+        header.addView(text("설정", 28f, bold = true), lp(0, weight = 1f))
         header.addView(button("완료", outlined = true) { finish() })
         root.addView(header)
 
         // ── 계산식 ──
         root.addView(sectionTitle("계산식"))
-        root.addView(text("A = 거리(km), B = 시간(분), C = 금액(원). 줄을 누르면 그 식을 써요.", 13f, C.SUB))
+        root.addView(text("A = 거리(km), B = 시간(분), C = 금액(원)\n줄을 누르면 그 식을 써요.", 15f, C.DIM))
         formulaBox = vbox()
         root.addView(formulaBox, lp().also { it.topMargin = dp(6) })
-        val fButtons = hbox()
-        fButtons.addView(button("+ 식 추가") { editFormula(null) }, lp(0, weight = 1f))
-        fButtons.addView(button("기본값으로 되돌리기", outlined = true) { confirmResetFormulas() }.margins(this, start = 8))
-        root.addView(fButtons)
+        root.addView(dashedButton("+ 식 추가") { editFormula(null) })
+        root.addView(text("기본값으로 되돌리기", 15f, C.ACCENT).apply {
+            setPadding(0, dp(12), 0, dp(4))
+            setOnClickListener { confirmResetFormulas() }
+        })
         renderFormulas()
 
         // ── 기준값 ──
-        root.addView(sectionTitle("기준값"))
-        root.addView(text("기준 단가: 계산값이 이보다 작으면 회색(기준 미달)으로 흐리게 보여요. 비워 두면 안 써요.", 13f, C.SUB))
+        root.addView(sectionTitle("기준 단가"))
+        root.addView(text("계산값이 이보다 작으면 회색으로 흐리게 보여요. 비워 두면 안 써요.", 15f, C.DIM))
         root.addView(numberField("예: 300", store.threshold) { store.threshold = it })
 
         val minRow = hbox().apply { margins(this@SettingsActivity, top = 16) }
-        minRow.addView(text("최소 금액 (이보다 싼 콜은 숨김)", 15f), lp(0, weight = 1f))
+        minRow.addView(text("최소 금액\n(이보다 싼 콜은 숨김)", 18f, bold = true), lp(0, weight = 1f))
         val minField = numberField("예: 15000", store.minPrice) { store.minPrice = it }
         minField.isEnabled = store.minPriceOn
         minRow.addView(MaterialSwitch(this).apply {
@@ -79,17 +80,17 @@ class SettingsActivity : AppCompatActivity() {
 
         // ── 지역 단어 ──
         root.addView(sectionTitle("지역 단어"))
-        root.addView(text("주소에 이 단어가 들어 있으면 색으로 표시해요. \"안산\"을 등록하면 안산시 단원구, 상록구 모두 걸려요.", 13f, C.SUB))
+        root.addView(text("주소에 이 단어가 들어 있으면 색으로 표시해요.\n\"안산\" → 안산시 단원구, 상록구 모두 걸려요.", 15f, C.DIM))
         wordBox = vbox()
         root.addView(wordBox, lp().also { it.topMargin = dp(6) })
-        root.addView(button("+ 단어 추가") { editWord(-1) })
+        root.addView(dashedButton("+ 단어 추가") { editWord(-1) })
         renderWords()
 
-        root.addView(text("검사할 주소", 15f, bold = true).margins(this, top = 14))
+        root.addView(text("검사할 주소", 18f, bold = true).margins(this, top = 18))
         root.addView(radios(listOf("도착지만", "출발지도 포함"), if (store.checkOrigin) 1 else 0) { store.checkOrigin = it == 1 })
-        root.addView(text("빨강(가면 안 됨) 지역 콜은", 15f, bold = true).margins(this, top = 10))
+        root.addView(text("⛔ 빨강 지역 콜은", 18f, bold = true).margins(this, top = 14))
         root.addView(radios(listOf("계산값을 보여 주고 경고", "계산값 숨기기"), if (store.hideRedValue) 1 else 0) { store.hideRedValue = it == 1 })
-        root.addView(text("빨강 지역 콜은 어느 쪽이든 '제일 좋음'에서 빠져요.", 13f, C.SUB))
+        root.addView(text("어느 쪽이든 '제일 좋음'에서 빠져요.", 15f, C.DIM))
 
         // ── 권한 ──
         root.addView(sectionTitle("권한"))
@@ -99,7 +100,7 @@ class SettingsActivity : AppCompatActivity() {
         // ── 기타 ──
         root.addView(sectionTitle("기타"))
         val speedRow = hbox()
-        speedRow.addView(text("속도 표시 (읽기·계산에 걸린 시간)", 15f), lp(0, weight = 1f))
+        speedRow.addView(text("속도 표시 (⏱ 걸린 시간)", 18f), lp(0, weight = 1f))
         speedRow.addView(MaterialSwitch(this).apply {
             isChecked = store.showSpeed
             setOnCheckedChangeListener { _, on -> store.showSpeed = on }
@@ -109,16 +110,16 @@ class SettingsActivity : AppCompatActivity() {
         // ── 업데이트 ──
         root.addView(sectionTitle("업데이트"))
         val upRow = hbox()
-        upRow.addView(text("앱을 켤 때 새 버전 자동 확인", 15f), lp(0, weight = 1f))
+        upRow.addView(text("켤 때 새 버전 자동 확인", 18f), lp(0, weight = 1f))
         upRow.addView(MaterialSwitch(this).apply {
             isChecked = store.autoUpdate
             setOnCheckedChangeListener { _, on -> store.autoUpdate = on }
         })
         root.addView(upRow)
-        root.addView(button("지금 새 버전 확인", outlined = true) { Updater.check(this, quiet = false) })
-        root.addView(text("인터넷은 새 버전 확인과 받기에만 써요. 화면에서 읽은 콜 내용은 밖으로 보내지 않아요.", 13f, C.SUB))
+        root.addView(button("지금 새 버전 확인", outlined = true) { Updater.check(this, quiet = false) }.margins(this, top = 8))
+        root.addView(text("인터넷은 새 버전 확인과 받기에만 써요. 읽은 콜 내용은 밖으로 보내지 않아요.", 15f, C.DIM).margins(this, top = 6))
 
-        root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 12f, C.GRAY).margins(this, top = 24))
+        root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 13f, C.GRAY).margins(this, top = 24))
     }
 
     // ───────── 계산식 ─────────
@@ -129,18 +130,17 @@ class SettingsActivity : AppCompatActivity() {
         for (f in store.formulas) {
             val on = f.id == selected
             val row = hbox().apply {
-                background = roundBg(C.PANEL, if (on) C.ACCENT else C.LINE, if (on) 2 else 1)
-                setPadding(dp(12), dp(8), dp(6), dp(8))
+                background = roundBg(C.PANEL, if (on) C.BTN else C.LINE, 2, 12)
+                setPadding(dp(14), dp(12), dp(10), dp(12))
                 layoutParams = lp().also { it.setMargins(0, dp(4), 0, dp(4)) }
                 setOnClickListener { store.selectedId = f.id; renderFormulas() }
             }
-            row.addView(text(if (on) "●" else "○", 18f, if (on) C.ACCENT else C.SUB).apply { setPadding(0, 0, dp(10), 0) })
+            row.addView(text(if (on) "●" else "○", 20f, if (on) C.BTN else C.GRAY).apply { setPadding(0, 0, dp(12), 0) })
             val col = vbox()
-            col.addView(text(f.name, 15f, bold = on))
-            col.addView(text(MainActivity.pretty(f.expr), 14f, C.SUB))
+            col.addView(text(f.name, 18f, bold = on))
+            col.addView(text(MainActivity.pretty(f.expr), 16f, C.DIM))
             row.addView(col, lp(0, weight = 1f))
             row.addView(button("수정", outlined = true) { editFormula(f) })
-            row.addView(button("삭제", outlined = true) { deleteFormula(f) }.margins(this, start = 4))
             formulaBox.addView(row)
         }
     }
@@ -228,6 +228,7 @@ class SettingsActivity : AppCompatActivity() {
             .setView(box)
             .setPositiveButton("저장", null)
             .setNegativeButton("취소", null)
+            .apply { if (f != null) setNeutralButton("삭제") { _, _ -> deleteFormula(f) } }
             .show()
         // 잘못된 식이면 창을 닫지 않는다
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -254,24 +255,20 @@ class SettingsActivity : AppCompatActivity() {
         wordBox.removeAllViews()
         val words = store.words
         if (words.isEmpty()) {
-            wordBox.addView(text("등록한 단어가 없어요.", 14f, C.GRAY).margins(this, top = 4, bottom = 4))
+            wordBox.addView(text("등록한 단어가 없어요.", 16f, C.GRAY).margins(this, top = 4, bottom = 4))
         }
         words.forEachIndexed { i, w ->
             val row = hbox().apply {
-                background = roundBg(C.regionBg(w.color), C.region(w.color), 1)
-                setPadding(dp(12), dp(8), dp(6), dp(8))
+                background = roundBg(C.regionBg(w.color), C.regionLine(w.color), 2, 12)
+                setPadding(dp(14), dp(12), dp(10), dp(12))
                 layoutParams = lp().also { it.setMargins(0, dp(4), 0, dp(4)) }
                 setOnClickListener { editWord(i) }
             }
-            row.addView(View(this).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(C.region(w.color)) }
-            }, LinearLayout.LayoutParams(dp(14), dp(14)).also { it.marginEnd = dp(10) })
             val col = vbox()
-            col.addView(text(w.word, 16f, C.region(w.color), bold = true))
-            if (w.memo.isNotBlank()) col.addView(text(w.memo, 13f, C.SUB))
+            col.addView(text("${C.regionIcon(w.color)} ${w.word}", 19f, C.region(w.color), bold = true))
+            if (w.memo.isNotBlank()) col.addView(text(w.memo, 16f, C.SUB))
             row.addView(col, lp(0, weight = 1f))
             row.addView(button("수정", outlined = true) { editWord(i) })
-            row.addView(button("삭제", outlined = true) { deleteWord(i) }.margins(this, start = 4))
             wordBox.addView(row)
         }
     }
@@ -309,6 +306,7 @@ class SettingsActivity : AppCompatActivity() {
             .setView(box)
             .setPositiveButton("저장", null)
             .setNegativeButton("취소", null)
+            .apply { if (old != null) setNeutralButton("삭제") { _, _ -> deleteWord(i) } }
             .show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val w = word.text.toString().trim()
@@ -332,7 +330,7 @@ class SettingsActivity : AppCompatActivity() {
         setText(value)
         setTextColor(C.FG)
         setHintTextColor(C.GRAY)
-        textSize = 16f
+        textSize = 20f
         isSingleLine = true
     }
 
@@ -349,8 +347,9 @@ class SettingsActivity : AppCompatActivity() {
             addView(RadioButton(this@SettingsActivity).apply {
                 id = View.generateViewId()
                 text = l
-                textSize = 15f
+                textSize = 18f
                 setTextColor(C.FG)
+                setPadding(dp(4), dp(6), 0, dp(6))
                 isChecked = i == checked
             })
         }

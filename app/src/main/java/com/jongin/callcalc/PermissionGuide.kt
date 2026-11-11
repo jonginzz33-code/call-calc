@@ -42,10 +42,10 @@ object PermissionGuide {
     /** 안내 창. later 는 [나중에]를 눌렀을 때 */
     fun show(a: Activity, missing: List<Perm>, later: () -> Unit): AlertDialog {
         val box = a.vbox(20)
-        box.addView(a.text("아래 권한이 꺼져 있어요. [켜러 가기]를 누르면 설정 화면이 바로 열려요.", 14f, C.SUB))
+        box.addView(a.text("버튼을 누르면 설정 화면이 바로 열려요.", 17f, C.SUB))
         for (p in missing) box.addView(card(a, p))
         return MaterialAlertDialogBuilder(a)
-            .setTitle("권한 설정이 필요해요" + if (missing.size > 1) " (${missing.size}개)" else "")
+            .setTitle("권한을 켜 주세요" + if (missing.size > 1) " (${missing.size}개)" else "")
             .setView(box)
             .setCancelable(false)
             .setNegativeButton("나중에") { _, _ -> later() }
@@ -54,16 +54,18 @@ object PermissionGuide {
 
     private fun card(a: Activity, p: Perm): View {
         val c = a.vbox().apply {
-            background = a.roundBg(C.PANEL, C.WARN, 1)
-            setPadding(a.dp(14), a.dp(12), a.dp(14), a.dp(12))
-            layoutParams = lp().also { it.setMargins(0, a.dp(12), 0, 0) }
+            background = a.roundBg(android.graphics.Color.parseColor("#2A1F0A"), C.WARN, 2, 14)
+            setPadding(a.dp(14), a.dp(14), a.dp(14), a.dp(14))
+            layoutParams = lp().also { it.setMargins(0, a.dp(14), 0, 0) }
         }
-        c.addView(a.text("❌ " + p.title, 16f, C.WARN, bold = true))
-        c.addView(a.text(p.why, 14f, C.FG).margins(a, top = 4))
-        c.addView(a.text(p.steps.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n"), 14f, C.SUB).margins(a, top = 6))
-        c.addView(a.button("켜러 가기") { p.open(a) }.apply {
+        c.addView(a.text("❌ " + p.title, 20f, C.WARN, bold = true))
+        c.addView(a.text(p.why, 16f, C.FG).margins(a, top = 4))
+        c.addView(a.text(p.steps.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n"), 17f, C.SUB).apply {
+            setLineSpacing(0f, 1.3f)
+        }.margins(a, top = 8))
+        c.addView(a.button("켜러 가기 →", big = true) { p.open(a) }.apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                .also { it.topMargin = a.dp(8) }
+                .also { it.topMargin = a.dp(12) }
         })
         return c
     }
@@ -73,8 +75,12 @@ object PermissionGuide {
         val box = a.vbox()
         for (p in all()) {
             val on = runCatching { p.granted(a) }.getOrDefault(false)
-            val row = a.hbox().apply { layoutParams = lp().also { it.setMargins(0, a.dp(4), 0, a.dp(4)) } }
-            row.addView(a.text((if (on) "✅ " else "❌ ") + p.title, 15f, if (on) C.GOOD else C.WARN), lp(0, weight = 1f))
+            val row = a.hbox().apply {
+                background = a.roundBg(C.PANEL, if (on) C.LINE else C.WARN, 2, 12)
+                setPadding(a.dp(14), a.dp(12), a.dp(10), a.dp(12))
+                layoutParams = lp().also { it.setMargins(0, a.dp(4), 0, a.dp(4)) }
+            }
+            row.addView(a.text((if (on) "✅ " else "❌ ") + p.title, 18f, if (on) C.FG else C.WARN, bold = !on), lp(0, weight = 1f))
             if (!on) row.addView(a.button("켜러 가기", outlined = true) { p.open(a) })
             box.addView(row)
         }

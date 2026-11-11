@@ -17,30 +17,40 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.jongin.callcalc.core.RegionColor
 
-/** 색: 콜 화면처럼 검은 바탕. 운전 중에도 색만으로 구분되게 진하게 */
+/** 색: 콜 화면처럼 검은 바탕. 운전 중에도 색만으로 구분되게 진하게 (시안 기준) */
 object C {
     val BG = Color.parseColor("#0C0E12")
     val PANEL = Color.parseColor("#161A21")
-    val FG = Color.parseColor("#EEF1F5")
-    val SUB = Color.parseColor("#9AA5B3")
+    val FG = Color.parseColor("#FFFFFF")
+    val SUB = Color.parseColor("#C7CED8")
+    val DIM = Color.parseColor("#9AA5B3")
     val LINE = Color.parseColor("#2B323C")
-    val ACCENT = Color.parseColor("#6AA9F2")
-    val GOOD = Color.parseColor("#8FCE6A")
-    val BAD = Color.parseColor("#F08A88")
-    val WARN = Color.parseColor("#E5B755")
-    val GRAY = Color.parseColor("#6B7380")
+    val BTN = Color.parseColor("#4C8FE0")
+    val ACCENT = Color.parseColor("#9CC7FF")
+    val GOOD = Color.parseColor("#7DFF7D")
+    val BAD = Color.parseColor("#FF8A8A")
+    val WARN = Color.parseColor("#FFD54A")
+    val GRAY = Color.parseColor("#8A929E")
 
+    /** 지역 글자색 */
     fun region(c: RegionColor) = when (c) {
         RegionColor.RED -> BAD
         RegionColor.YELLOW -> WARN
         RegionColor.GREEN -> GOOD
     }
 
-    /** 지역 색이 걸린 카드 바탕 (살짝 물든 검정) */
+    /** 지역 테두리색 */
+    fun regionLine(c: RegionColor) = when (c) {
+        RegionColor.RED -> Color.parseColor("#FF5A5A")
+        RegionColor.YELLOW -> Color.parseColor("#FFD54A")
+        RegionColor.GREEN -> Color.parseColor("#5FD35F")
+    }
+
+    /** 지역 색이 걸린 카드 바탕 */
     fun regionBg(c: RegionColor) = when (c) {
-        RegionColor.RED -> Color.parseColor("#2E1517")
-        RegionColor.YELLOW -> Color.parseColor("#2B2410")
-        RegionColor.GREEN -> Color.parseColor("#15291A")
+        RegionColor.RED -> Color.parseColor("#4A1416")
+        RegionColor.YELLOW -> Color.parseColor("#3D3210")
+        RegionColor.GREEN -> Color.parseColor("#123A1C")
     }
 
     fun regionIcon(c: RegionColor) = when (c) {
@@ -61,13 +71,39 @@ fun Context.text(s: CharSequence, sizeSp: Float = 15f, color: Int = C.FG, bold: 
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
-fun Context.button(label: String, outlined: Boolean = false, onClick: () -> Unit) =
+fun Context.button(label: String, outlined: Boolean = false, big: Boolean = false, onClick: () -> Unit) =
     MaterialButton(this, null, if (outlined) com.google.android.material.R.attr.materialButtonOutlinedStyle else com.google.android.material.R.attr.materialButtonStyle).apply {
         text = label
-        textSize = 15f
+        textSize = if (big) 20f else 16f
+        setTypeface(typeface, Typeface.BOLD)
         isAllCaps = false
+        cornerRadius = dp(14)
+        insetTop = 0
+        insetBottom = 0
+        minHeight = dp(if (big) 60 else 46)
+        if (outlined) {
+            setTextColor(C.ACCENT)
+            strokeColor = android.content.res.ColorStateList.valueOf(C.BTN)
+            strokeWidth = dp(2)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#1F252E"))
+        } else {
+            setTextColor(C.FG)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(C.BTN)
+        }
         setOnClickListener { onClick() }
     }
+
+/** 점선 테두리 "+ 추가" 버튼 */
+fun Context.dashedButton(label: String, onClick: () -> Unit) = text(label, 18f, C.ACCENT, bold = true).apply {
+    gravity = Gravity.CENTER
+    setPadding(0, dp(14), 0, dp(14))
+    background = GradientDrawable().apply {
+        cornerRadius = dp(12).toFloat()
+        setStroke(dp(2), C.BTN, dp(8).toFloat(), dp(5).toFloat())
+    }
+    layoutParams = lp().also { it.setMargins(0, dp(8), 0, 0) }
+    setOnClickListener { onClick() }
+}
 
 fun Context.vbox(padDp: Int = 0) = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
@@ -80,10 +116,10 @@ fun Context.hbox() = LinearLayout(this).apply {
     gravity = Gravity.CENTER_VERTICAL
 }
 
-fun Context.roundBg(fill: Int, stroke: Int = C.LINE, strokeDp: Int = 1, radiusDp: Int = 12) = GradientDrawable().apply {
+fun Context.roundBg(fill: Int, stroke: Int = C.LINE, strokeDp: Int = 2, radiusDp: Int = 14, dashed: Boolean = false) = GradientDrawable().apply {
     setColor(fill)
     cornerRadius = dp(radiusDp).toFloat()
-    setStroke(dp(strokeDp), stroke)
+    if (dashed) setStroke(dp(strokeDp), stroke, dp(8).toFloat(), dp(5).toFloat()) else setStroke(dp(strokeDp), stroke)
 }
 
 fun lp(w: Int = ViewGroup.LayoutParams.MATCH_PARENT, h: Int = ViewGroup.LayoutParams.WRAP_CONTENT, weight: Float = 0f) =
@@ -112,6 +148,6 @@ fun Activity.scrollPage(content: View): ScrollView {
     return scroll
 }
 
-fun Context.sectionTitle(s: String) = text(s, 18f, C.FG, bold = true).apply {
+fun Context.sectionTitle(s: String) = text(s, 21f, C.FG, bold = true).apply {
     layoutParams = lp().also { it.setMargins(0, dp(24), 0, dp(8)) }
 }
