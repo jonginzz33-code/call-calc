@@ -60,8 +60,6 @@ class MainActivity : AppCompatActivity() {
         store = Store(this)
         buildUi()
         handleShare(intent)
-        // 처음 켤 때만 조용히 새 버전 확인 (화면 회전 등으로 다시 만들어질 땐 안 함)
-        if (savedInstanceState == null && store.autoUpdate) Updater.check(this, quiet = true)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -74,6 +72,40 @@ class MainActivity : AppCompatActivity() {
         // 설정 화면에서 돌아오면 새 설정으로 다시 계산
         showFormula()
         if (hasResult) render()
+        checkPermissions()
+    }
+
+    private var guideDialog: androidx.appcompat.app.AlertDialog? = null
+
+    /**
+     * 꺼진 권한이 있으면 바로 안내 창. 설정에서 켜고 돌아오면 (onResume) 다시 확인해서
+     * 다 켜졌으면 창을 닫는다. 권한 안내가 끝난 뒤에 새 버전을 확인한다.
+     */
+    private fun checkPermissions() {
+        val missing = PermissionGuide.missing(this)
+        if (missing.isEmpty()) {
+            if (guideDialog?.isShowing == true) {
+                guideDialog?.dismiss()
+                android.widget.Toast.makeText(this, "권한 설정이 끝났어요 ✅", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            guideDialog = null
+            checkUpdateOnce()
+            return
+        }
+        if (guideSnoozed) { checkUpdateOnce(); return }
+        guideDialog?.dismiss()
+        guideDialog = PermissionGuide.show(this, missing) {
+            guideSnoozed = true
+            guideDialog = null
+            checkUpdateOnce()
+        }
+    }
+
+    /** 앱을 켠 뒤 한 번만 조용히 새 버전 확인 */
+    private fun checkUpdateOnce() {
+        if (updateChecked || !store.autoUpdate) return
+        updateChecked = true
+        Updater.check(this, quiet = true)
     }
 
     private fun buildUi() {
@@ -337,6 +369,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        // 앱이 켜져 있는 동안 기억 (화면 회전 등으로 다시 만들어져도 유지)
+        private var guideSnoozed = false
+        private var updateChecked = false
+
         /** 내부 표기 * / 를 화면 표기 × ÷ 로 */
         fun pretty(expr: String) = expr.replace("*", "×").replace("/", "÷")
     }

@@ -30,6 +30,14 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var store: Store
     private lateinit var formulaBox: LinearLayout
     private lateinit var wordBox: LinearLayout
+    private lateinit var permBox: LinearLayout
+
+    override fun onResume() {
+        super.onResume()
+        // 설정에서 권한을 켜고 돌아오면 상태를 다시 그림
+        permBox.removeAllViews()
+        permBox.addView(PermissionGuide.statusRows(this))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +90,11 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(text("빨강(가면 안 됨) 지역 콜은", 15f, bold = true).margins(this, top = 10))
         root.addView(radios(listOf("계산값을 보여 주고 경고", "계산값 숨기기"), if (store.hideRedValue) 1 else 0) { store.hideRedValue = it == 1 })
         root.addView(text("빨강 지역 콜은 어느 쪽이든 '제일 좋음'에서 빠져요.", 13f, C.SUB))
+
+        // ── 권한 ──
+        root.addView(sectionTitle("권한"))
+        permBox = vbox()
+        root.addView(permBox)
 
         // ── 기타 ──
         root.addView(sectionTitle("기타"))
