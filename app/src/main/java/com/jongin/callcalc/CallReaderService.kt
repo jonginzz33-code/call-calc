@@ -59,7 +59,7 @@ class CallReaderService : AccessibilityService() {
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         val pkg = e.packageName?.toString() ?: return
         if (pkg == packageName) return
-        val target = pkg in store.targetPackages
+        val target = store.watches(pkg)
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 // 다른 화면으로 넘어가면 (목록 새로고침, 상세 화면 등) 기억을 지운다
@@ -120,8 +120,8 @@ class CallReaderService : AccessibilityService() {
     private fun refresh() {
         val root = runCatching { rootInActiveWindow }.getOrNull()
         val pkg = root?.packageName?.toString()
-        val targets = store.targetPackages
-        if (pkg == null || pkg !in targets) {
+        // 콜 계산기 자기 화면 위에서는 표시하지 않음
+        if (pkg == null || pkg == packageName || !store.watches(pkg)) {
             // 키보드나 알림창 등이 잠깐 위에 올라온 경우가 아니면 숨긴다
             if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg }
             return

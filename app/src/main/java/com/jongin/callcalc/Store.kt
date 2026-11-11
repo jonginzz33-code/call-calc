@@ -103,6 +103,14 @@ class Store(context: Context) {
         get() = p.getStringSet("targetPackages", emptySet())!!.toSet()
         set(v) = p.edit().putStringSet("targetPackages", v).apply()
 
+    /** 항상 표시: 감시할 앱과 상관없이 모든 앱 위에서 동작 (테스트용, 예: 갤러리에서 스크린샷 보기) */
+    var alwaysOn: Boolean
+        get() = p.getBoolean("alwaysOn", false)
+        set(v) = p.edit().putBoolean("alwaysOn", v).apply()
+
+    /** 이 앱 화면 위에서 실시간 표시를 할지 */
+    fun watches(pkg: String) = alwaysOn || pkg in targetPackages
+
     /** 읽는 방식: 0 자동(접근성 먼저, 안 되면 화면 캡처) / 1 접근성만 / 2 화면 캡처(OCR)만 */
     var readMode: Int
         get() = p.getInt("readMode", 0)

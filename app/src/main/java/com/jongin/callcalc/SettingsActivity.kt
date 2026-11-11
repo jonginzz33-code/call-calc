@@ -104,6 +104,14 @@ class SettingsActivity : AppCompatActivity() {
         appRow.addView(appText, lp(0, weight = 1f))
         appRow.addView(button("고르기", outlined = true) { AppPicker.show(this, store) { refreshApps() } })
         root.addView(appRow)
+        val alwaysRow = hbox().apply { margins(this@SettingsActivity, top = 10) }
+        alwaysRow.addView(text("항상 표시 (모든 앱에서, 테스트용)", 18f), lp(0, weight = 1f))
+        alwaysRow.addView(MaterialSwitch(this).apply {
+            isChecked = store.alwaysOn
+            setOnCheckedChangeListener { _, on -> store.alwaysOn = on; live() }
+        })
+        root.addView(alwaysRow)
+        root.addView(text("켜면 감시할 앱과 상관없이 어느 화면에서나 읽어요. 갤러리에서 스크린샷으로 시험할 때 써요.", 15f, C.DIM))
 
         root.addView(text("읽는 방식", 18f, bold = true).margins(this, top = 14))
         root.addView(radios(listOf("자동 (접근성 먼저, 안 되면 화면 캡처)", "접근성만", "화면 캡처(OCR)만"), store.readMode) {

@@ -4,6 +4,12 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.Toast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
@@ -37,23 +43,60 @@ object AppPicker {
         Thread {
             val apps = installedApps(a)
             Handler(Looper.getMainLooper()).post {
-                if (a.isFinishing) return@post
-                val chosen = store.targetPackages.toMutableSet()
-                val names = apps.map { it.label }.toTypedArray()
-                val checked = apps.map { it.pkg in chosen }.toBooleanArray()
-                MaterialAlertDialogBuilder(a)
-                    .setTitle(title)
-                    .setMultiChoiceItems(names, checked) { _, i, on ->
-                        if (on) chosen += apps[i].pkg else chosen -= apps[i].pkg
-                    }
-                    .setPositiveButton("저장") { _, _ ->
-                        store.targetPackages = chosen
-                        CallReaderService.instance?.settingsChanged()
-                        done()
-                    }
-                    .setNegativeButton("취소", null)
-                    .show()
+                if (!a.isFinishing) dialog(a, store, title, apps, done)
             }
         }.start()
+    }
+
+    /** 검색칸 + 체크 목록. 고른 앱이 맨 위에 */
+    private fun dialog(a: Activity, store: Store, title: String, apps: List<App>, done: () -> Unit) {
+        val chosen = store.targetPackages.toMutableSet()
+        val box = a.vbox(16)
+        val search = EditText(a).apply {
+            hint = "🔍 앱 이름 검색 (예: 대리, 카카오)"
+            textSize = 18f
+            isSingleLine = true
+            setTextColor(C.FG)
+            setHintTextColor(C.GRAY)
+        }
+        box.addView(search)
+        val count = a.text("", 14f, C.DIM).margins(a, top = 4) as android.widget.TextView
+        box.addView(count)
+        val list = ListView(a).apply { choiceMode = ListView.CHOICE_MODE_MULTIPLE }
+        box.addView(list, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, a.dp(380)))
+
+        var shown: List<App> = emptyList()
+        fun refresh() {
+            val q = search.text.toString().trim().replace(" ", "").lowercase()
+            shown = apps
+                .filter { q.isEmpty() || it.label.replace(" ", "").lowercase().contains(q) || it.pkg.lowercase().contains(q) }
+                .sortedWith(compareBy({ it.pkg !in chosen }, { it.label }))
+            list.adapter = ArrayAdapter(a, android.R.layout.simple_list_item_multiple_choice, shown.map { it.label })
+            shown.forEachIndexed { i, app -> list.setItemChecked(i, app.pkg in chosen) }
+            count.text = "고른 앱 ${chosen.size}개 · 목록 ${shown.size}개"
+        }
+        list.setOnItemClickListener { _, _, i, _ ->
+            val app = shown[i]
+            if (app.pkg in chosen) chosen -= app.pkg else chosen += app.pkg
+            list.setItemChecked(i, app.pkg in chosen)
+            count.text = "고른 앱 ${chosen.size}개 · 목록 ${shown.size}개"
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, af: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) = refresh()
+        })
+        refresh()
+
+        MaterialAlertDialogBuilder(a)
+            .setTitle(title)
+            .setView(box)
+            .setPositiveButton("저장") { _, _ ->
+                store.targetPackages = chosen
+                CallReaderService.instance?.settingsChanged()
+                done()
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 }

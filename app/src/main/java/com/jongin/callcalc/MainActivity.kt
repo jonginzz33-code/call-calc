@@ -122,7 +122,7 @@ class MainActivity : AppCompatActivity() {
             }
             guideDialog = null
             // 권한이 다 켜졌는데 감시할 앱을 안 골랐으면 바로 고르게
-            if (store.targetPackages.isEmpty() && !appAsked) {
+            if (store.targetPackages.isEmpty() && !store.alwaysOn && !appAsked) {
                 appAsked = true
                 AppPicker.show(this, store, "어느 콜 앱 위에 띄울까요?") { renderLive() }
                 return
@@ -231,7 +231,25 @@ class MainActivity : AppCompatActivity() {
         fun line(ok: Boolean, s: String) =
             liveBox.addView(text((if (ok) "✅ " else "❌ ") + s, 17f, if (ok) C.FG else C.WARN, bold = !ok).margins(this, top = 6))
         line(accOn, if (accOn) "접근성 켜짐" else "접근성 꺼짐")
-        line(apps.isNotEmpty(), "감시할 앱: " + AppPicker.summary(this, store))
+        line(apps.isNotEmpty() || store.alwaysOn,
+            if (store.alwaysOn) "항상 표시: 모든 앱에서 동작 중" else "감시할 앱: " + AppPicker.summary(this, store))
+
+        // 항상 표시 스위치 (테스트용)
+        val alwaysRow = hbox().apply { margins(this@MainActivity, top = 8) }
+        alwaysRow.addView(text("항상 표시 (모든 앱에서, 테스트용)", 17f, bold = true), lp(0, weight = 1f))
+        alwaysRow.addView(com.google.android.material.materialswitch.MaterialSwitch(this).apply {
+            isChecked = store.alwaysOn
+            setOnCheckedChangeListener { _, on ->
+                store.alwaysOn = on
+                CallReaderService.instance?.settingsChanged()
+                liveBox.post { renderLive() }
+            }
+        })
+        liveBox.addView(alwaysRow)
+        if (store.alwaysOn) {
+            liveBox.addView(text("갤러리에서 스크린샷을 띄우면 그 위에 표시돼요. 사진 속 글자는 접근성으로 못 읽으니 [화면 캡처 시작]도 눌러 주세요. 실제로 쓸 땐 끄고 감시할 앱을 고르세요.",
+                15f, C.WARN).margins(this, top = 4))
+        }
         liveBox.addView(text("읽는 방식: " + listOf("자동", "접근성만", "화면 캡처만")[mode.coerceIn(0, 2)], 16f, C.SUB).margins(this, top = 6))
         if (mode != 1) {
             liveBox.addView(text("화면 캡처: " + if (capOn) "켜짐 (알림에서 중지 가능)" else "꺼짐" + if (mode == 0) " (접근성으로 읽히면 필요 없어요)" else "",
@@ -253,9 +271,9 @@ class MainActivity : AppCompatActivity() {
         }
         liveBox.addView(btns)
 
-        val ready = accOn && apps.isNotEmpty()
+        val ready = accOn && (apps.isNotEmpty() || store.alwaysOn)
         liveBox.addView(text(
-            if (ready) "콜 앱을 열면 화면 옆에 둥근 [콜 ON] 버튼이 생겨요.\n· 누르면 표시 켜기/끄기 · 끌어서 옮기기 · 길게 누르면 기억 지우기"
+            if (ready) (if (store.alwaysOn) "다른 앱을 열면" else "콜 앱을 열면") + " 화면 옆에 둥근 [콜 ON] 버튼이 생겨요.\n· 누르면 표시 켜기/끄기 · 끌어서 옮기기 · 길게 누르면 기억 지우기"
             else "위의 ❌ 를 해결하면 콜 앱 위에 계산값이 떠요.",
             15f, C.DIM,
         ).margins(this, top = 10))
