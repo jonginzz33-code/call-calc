@@ -474,6 +474,80 @@ class Overlay(
         result = box
     }
 
+    /** [콜 확인] 결과 카드에 들어갈 내용 */
+    data class CheckCard(
+        val pickupPlace: String, val pickupKm: String, val pickupMin: String, val pickupNote: String?,
+        val ridePlace: String, val rideKm: String, val rideMin: String, val rideNote: String?,
+        val total: String, val price: String, val perMin: String, val perFormula: String, val perColor: Int,
+        val footer: String,
+    )
+
+    /** 두 구간 + 총 시간 + 금액 + 분당 금액 (시안 모양). 계산 중엔 "…" 로 채우고 다시 불러서 갱신 */
+    fun showCheckCard(c: CheckCard) {
+        hideResult()
+        val box = svc.vbox(16).apply {
+            background = svc.roundBg(Color.parseColor("#F21E232B"), Color.parseColor("#2F9E58"), 2, 18)
+            setOnClickListener { hideResult() }
+        }
+        val head = svc.hbox()
+        head.addView(svc.text("🚗 콜 확인", 18f, Color.WHITE, bold = true), lp(0, weight = 1f))
+        head.addView(svc.text("TMAP 실시간 교통", 13f, C.SUB))
+        box.addView(head)
+
+        fun leg(icon: String, label: String, place: String, km: String, min: String, note: String?) {
+            val row = svc.hbox().apply {
+                background = svc.roundBg(Color.parseColor("#161A21"), Color.parseColor("#2B323C"), 2, 12)
+                setPadding(dp(10), dp(8), dp(12), dp(8))
+                layoutParams = lp().also { it.topMargin = dp(8) }
+            }
+            row.addView(svc.text(icon, 20f).apply { setPadding(0, 0, dp(8), 0) })
+            val mid = svc.vbox()
+            mid.addView(svc.text(label, 12f, C.DIM))
+            mid.addView(svc.text(place, 15f, Color.WHITE, bold = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            if (note != null) mid.addView(svc.text(note, 12f, C.WARN).apply { maxLines = 2 })
+            row.addView(mid, lp(0, weight = 1f))
+            val right = svc.vbox().apply { gravity = Gravity.END }
+            right.addView(svc.text(km, 19f, Color.WHITE, bold = true).apply { gravity = Gravity.END })
+            right.addView(svc.text(min, 15f, C.ACCENT, bold = true).apply { gravity = Gravity.END })
+            row.addView(right)
+            box.addView(row)
+        }
+        leg("📍", "① 내 위치 → 출발지", c.pickupPlace, c.pickupKm, c.pickupMin, c.pickupNote)
+        leg("🏁", "② 출발지 → 도착지", c.ridePlace, c.rideKm, c.rideMin, c.rideNote)
+
+        fun bigBox(label: String, value: String, fg: Int, bg: Int, size: Float) = svc.vbox().apply {
+            gravity = Gravity.CENTER
+            background = svc.roundBg(bg, fg, 2, 14)
+            setPadding(dp(6), dp(6), dp(6), dp(8))
+            addView(svc.text(label, 12f, fg).apply { gravity = Gravity.CENTER })
+            addView(svc.text(value, size, fg, bold = true).apply { gravity = Gravity.CENTER })
+        }
+        val two = svc.hbox().apply { layoutParams = lp().also { it.topMargin = dp(10) } }
+        two.addView(bigBox("총 시간 (①+②)", c.total, C.ACCENT, Color.parseColor("#16263F"), 24f),
+            lp(0, weight = 1f).also { it.marginEnd = dp(6) })
+        two.addView(bigBox("금액 (실수익)", c.price, C.WARN, Color.parseColor("#2B2410"), 24f),
+            lp(0, weight = 1f).also { it.marginStart = dp(6) })
+        box.addView(two)
+        val perBg = if (c.perColor == C.GOOD) Color.parseColor("#123A1C") else Color.parseColor("#1A1D22")
+        box.addView(bigBox(c.perFormula, c.perMin, c.perColor, perBg, 34f).apply {
+            layoutParams = lp().also { it.topMargin = dp(10) }
+        })
+        box.addView(svc.text(c.footer, 12f, C.GRAY).margins(svc, top = 8))
+
+        val dm = svc.resources.displayMetrics
+        val lp = WindowManager.LayoutParams(
+            (dm.widthPixels * 0.9).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.CENTER }
+        runCatching { wm.addView(box, lp) }
+        result = box
+    }
+
+    val resultShowing: Boolean get() = result != null
+
     fun hideResult() {
         result?.let { runCatching { wm.removeView(it) } }
         result = null

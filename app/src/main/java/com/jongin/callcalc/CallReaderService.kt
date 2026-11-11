@@ -168,6 +168,7 @@ class CallReaderService : AccessibilityService() {
 
     private fun cleanup() {
         handler.removeCallbacksAndMessages(null)
+        CallCheck.stopLocation(this)
         if (::stats.isInitialized) stats.save()
         runCatching { unregisterReceiver(screenReceiver) }
         if (::overlay.isInitialized) overlay.destroy()
@@ -240,19 +241,20 @@ class CallReaderService : AccessibilityService() {
 
     private fun refresh() {
         dueAt = 0L
-        if (store.paused) { hideLabels(); overlay.hideBubble(); return }
+        if (store.paused) { hideLabels(); overlay.hideBubble(); CallCheck.stopLocation(this); return }
         val root = runCatching { rootInActiveWindow }.getOrNull()
         val pkg = root?.packageName?.toString()
         // 계산기 자기 화면 위에서는 표시하지 않음
         if (pkg == null || pkg == packageName || !store.watches(pkg)) {
             // 키보드나 알림창 등이 잠깐 위에 올라온 경우가 아니면 숨긴다
-            if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg }
+            if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg; CallCheck.stopLocation(this) }
             return
         }
         if (lastPkg != pkg) { memory.clear(); listTop = null; sticky.clear(); lastPkg = pkg }
         curPkg = pkg
         if (overlay.editing) return // 영역 정하는 중엔 읽지 않음
         overlay.showBubble()
+        CallCheck.startLocation(this) // 감시하는 앱이 떠 있는 동안 위치를 미리 잡아 둠
         if (!store.overlayOn) { hideLabels(); idle(HEARTBEAT); return }
         val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
         if (sinceScroll < SCROLL_SETTLE) { schedule(SCROLL_SETTLE - sinceScroll + 10, postpone = true); return }
@@ -268,7 +270,9 @@ class CallReaderService : AccessibilityService() {
             val ms = (SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000
             lastItems = items
             // 콜 상세 화면(수락 전)이면: 목록이 아니니 "못 읽었어요" 안내 없이, [콜 확인]을 쓰면 됨
-            if (rows.isEmpty() && DetailParser.parse(items) != null) {
+            val detail = if (rows.isEmpty()) DetailParser.parse(items) else null
+            if (detail != null) {
+                prefetch(detail)
                 source = "접근성"
                 show(emptyList(), ms, "상세 화면 · [콜 확인]으로 픽업 거리 보기")
                 idle(HEARTBEAT)
@@ -308,6 +312,7 @@ class CallReaderService : AccessibilityService() {
                 res is CaptureService.Result.Items -> {
                     source = "캡처"
                     lastItems = res.items
+                    DetailParser.parse(res.items)?.let { prefetch(it) }
                     val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(res.items)))
                     val manual = curPkg?.let { store.region(it) } != null
                     if (rows.isEmpty() && listTop != null && !manual) {
@@ -473,29 +478,88 @@ class CallReaderService : AccessibilityService() {
         }
     }
 
-    /** 픽업 거리 계산 → 결과 창 */
-    private fun runPickup(detail: com.jongin.callcalc.core.CallDetail) {
-        overlay.showResult("콜 확인 · 계산 중…", listOf("출발  ${detail.origin}" to C.SUB), null, C.FG)
-        PickupRoute.pickup(this, detail, store.tmapKey) { p, err ->
-            if (p == null) {
-                overlay.showResult("콜 확인", listOf((err ?: "계산에 실패했어요") to C.WARN), null, C.FG)
-                return@pickup
-            }
-            fun km(v: Double) = String.format(java.util.Locale.US, "%.1fkm", v)
-            val lines = mutableListOf<Pair<String, Int>>()
-            lines += "출발  ${p.origin}" to C.SUB
-            val big: String
-            if (p.roadKm != null) {
-                big = "픽업 도로 거리  ${km(p.roadKm)}"
-                p.roadMin?.let { lines += "차로 약 ${it}분 (TMAP 실시간 교통)" to C.FG }
-                p.straightKm?.let { lines += "직선 ${km(it)}" to C.SUB }
-            } else {
-                big = "픽업 약 ${km(p.estimatedKm!!)} (추정)"
-                lines += "직선 ${km(p.straightKm!!)} × ${PickupRoute.DETOUR} (도로는 보통 직선보다 1.2~1.4배)" to C.SUB
-            }
-            p.note?.let { lines += it to C.WARN }
-            overlay.showResult("콜 확인 · 픽업 거리", lines, big, if (p.roadKm != null) C.GOOD else C.FG)
+    // ── [콜 확인] 미리 계산 + 기억 ──
+    // 상세 화면이 열리면 뒤에서 미리 계산해 두고 (같은 콜은 3분 동안 기억), 누르면 바로 보여 준다.
+
+    private class CheckJob(val key: String, val at: Long) {
+        var latest: CallCheck.Result? = null
+        var listener: ((CallCheck.Result) -> Unit)? = null
+    }
+
+    private val jobs = LinkedHashMap<String, CheckJob>()
+    private var shownJobKey: String? = null
+
+    private fun jobKey(d: com.jongin.callcalc.core.CallDetail) = "${d.origin}|${d.destination}|${d.price}"
+
+    /** 이 콜의 계산 (이미 있으면 그것, 없으면 새로 시작) */
+    private fun jobFor(d: com.jongin.callcalc.core.CallDetail): CheckJob {
+        val k = jobKey(d)
+        val now = SystemClock.uptimeMillis()
+        jobs[k]?.takeIf { now - it.at < 180_000 }?.let { return it }
+        val job = CheckJob(k, now)
+        jobs[k] = job
+        while (jobs.size > 20) jobs.remove(jobs.keys.first())
+        CallCheck.run(d, store.tmapKey, CallCheck.freshLocation(this), store.pickupMinPerKm) { r ->
+            job.latest = r
+            job.listener?.invoke(r)
         }
+        return job
+    }
+
+    /** 상세 화면이 보이면 미리 계산 시작 (누르기 전에) */
+    private fun prefetch(d: com.jongin.callcalc.core.CallDetail) {
+        if (store.tmapKey.isBlank() || !store.showCheckOn) return
+        jobFor(d)
+    }
+
+    /** 계산 결과 → 결과 카드 (나오는 대로 갱신) */
+    private fun runPickup(detail: com.jongin.callcalc.core.CallDetail) {
+        val job = jobFor(detail)
+        shownJobKey = job.key
+        render(job.latest ?: CallCheck.Result(detail, detail.origin, detail.destination, null, null, false))
+        job.listener = { r -> if (shownJobKey == job.key && overlay.resultShowing) render(r) }
+    }
+
+    private fun render(r: CallCheck.Result) {
+        fun km(v: Double?) = v?.let { String.format(java.util.Locale.US, "%.1fkm", it) } ?: "—"
+        fun legKm(l: CallCheck.Leg?) = when {
+            l == null -> "계산 중…"
+            l.estimated && l.km != null -> "약 ${km(l.km)}"
+            else -> km(l.km)
+        }
+        fun legMin(l: CallCheck.Leg?) = when {
+            l == null -> ""
+            l.min == null -> "—"
+            l.estimated -> "약 ${l.min}분"
+            else -> "${l.min}분"
+        }
+        val price = com.jongin.callcalc.core.formatNumber(r.detail.price)
+        val per = r.perMinute
+        val perColor = when {
+            per == null -> C.SUB
+            store.goodAlertOn && per >= store.goodAlertMin -> C.GOOD
+            store.threshold != null && per < store.threshold!! -> C.GRAY
+            else -> C.FG
+        }
+        val total = r.totalMin
+        val anyEstimate = r.pickup?.estimated == true || r.ride?.estimated == true
+        val totalKm = listOfNotNull(r.pickup?.km, r.ride?.km).takeIf { it.size == 2 }?.sum()
+        val footer = listOfNotNull(
+            totalKm?.let { "총 거리 ${km(it)}" },
+            r.detail.rideMin?.let { "콜 앱 안내 운행 약 ${Store.plain(it)}분" },
+            if (anyEstimate) "\"약\"은 추정값" else null,
+            "아무 데나 누르면 닫혀요",
+        ).joinToString(" · ")
+        overlay.showCheckCard(Overlay.CheckCard(
+            pickupPlace = r.originName, pickupKm = legKm(r.pickup), pickupMin = legMin(r.pickup), pickupNote = r.pickup?.note,
+            ridePlace = r.destName, rideKm = legKm(r.ride), rideMin = legMin(r.ride), rideNote = r.ride?.note,
+            total = total?.let { "${it}분" } ?: "…",
+            price = "${price}원",
+            perMin = per?.let { "${com.jongin.callcalc.core.formatNumber(it)}원/분" } ?: if (r.done) "—" else "계산 중…",
+            perFormula = if (total != null) "분당 금액 = $price ÷ ${total}분" else "분당 금액",
+            perColor = perColor,
+            footer = footer,
+        ))
     }
 
     /** 표시가 나올 수 있는 범위: 읽은 영역(네모) 안, 없으면 화면 안 */

@@ -82,7 +82,7 @@ object PermissionGuide {
         extra = "앱 정보 열기" to { a ->
             a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
         },
-        granted = { PickupRoute.hasLocationPermission(it) },
+        granted = { CallCheck.hasLocationPermission(it) },
         open = { a ->
             a.requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), 71)
         },
