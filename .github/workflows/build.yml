@@ -1,0 +1,38 @@
+name: Build APK
+
+# main 에 푸시하거나 Actions 탭에서 직접 실행하면 디버그 APK를 만들어 산출물로 올림
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Test and build
+        run: |
+          chmod +x gradlew
+          ./gradlew :core:test testDebugUnitTest assembleDebug --no-daemon --stacktrace
+
+      - name: Name APK with version
+        run: |
+          VN=$(grep -oE '^## v[0-9][0-9.]*' README.md | tail -1 | sed 's/## //')
+          mkdir -p out
+          cp app/build/outputs/apk/debug/*.apk "out/call-calc-$VN.apk"
+          echo "VN=$VN" >> "$GITHUB_ENV"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: call-calc-${{ env.VN }}
+          path: out/*.apk
