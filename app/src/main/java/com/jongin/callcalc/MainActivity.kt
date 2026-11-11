@@ -216,7 +216,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(liveBox.margins(this, top = 14))
 
         // 앱 종료: 둥근 버튼·표시·화면 캡처·읽기를 모두 멈추고 닫기. 다시 열면 켜짐
-        root.addView(button("⏻ 앱 종료", outlined = true) { exitApp() }.apply {
+        root.addView(button("앱 종료", outlined = true) { exitApp() }.apply {
             setTextColor(C.BAD)
             strokeColor = android.content.res.ColorStateList.valueOf(C.BAD)
         }.margins(this, top = 10))
@@ -239,8 +239,8 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(formulaView.margins(this, top = 12))
         // 픽업 1km당 분 빠른 바꾸기 (시간대마다)
-        root.addView(text("픽업 1km당", 15f, C.DIM).margins(this, top = 10))
-        root.addView(pickupChips(store) { showFormula(); if (hasResult) render() }.margins(this, top = 4))
+        root.addView(View(this), lp(1, dp(10)))
+        root.addView(pickupSlider(store) { showFormula(); if (hasResult) render() }.margins(this, top = 4))
         infoView = text("", 16f, C.SUB).apply { margins(this@MainActivity, top = 10) }
         root.addView(infoView)
 

@@ -96,23 +96,8 @@ class SettingsActivity : AppCompatActivity() {
 
         // 픽업 1km당 분 (시간대마다 다름)
         root.addView(text("픽업 1km당 몇 분", 18f, bold = true).margins(this, top = 16))
-        root.addView(text("예: 8.4km × 2분 = 16.8 → 17분. 시간대마다 바꿔 쓰세요. (메인 화면에서도 바꿀 수 있어요)", 15f, C.DIM))
-        lateinit var pickupField: EditText
-        val chips = pickupChips(store) { pickupField.setText(Store.plain(store.pickupMinPerKm)) }
-        root.addView(chips.margins(this, top = 8))
-        pickupField = numberField("직접 입력 (예: 2.5)", store.pickupMinPerKm) { v ->
-            if (v != null && v > 0) {
-                store.pickupMinPerKm = v
-                // 빠른 버튼 색 다시 칠하기
-                for (i in 0 until chips.childCount) {
-                    val t = chips.getChildAt(i) as android.widget.TextView
-                    val on = t.text.toString().removeSuffix("분").toDoubleOrNull() == v
-                    t.setTextColor(if (on) C.FG else C.ACCENT)
-                    t.background = roundBg(if (on) C.BTN else C.PANEL, C.BTN, 2, 10)
-                }
-            }
-        }
-        root.addView(pickupField)
+        root.addView(text("동그라미를 끌어서 1~10분 사이로 골라요. 시간대마다 바꿔 쓰세요. (메인 화면에서도 바꿀 수 있어요)", 15f, C.DIM))
+        root.addView(pickupSlider(store) {}.margins(this, top = 8))
         root.addView(text("기본값으로 되돌리기", 15f, C.ACCENT).apply {
             setPadding(0, dp(12), 0, dp(4))
             setOnClickListener { confirmResetFormulas() }
@@ -296,6 +281,9 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(text("인터넷은 새 버전 확인과 받기에만 써요. 읽은 콜 내용은 밖으로 보내지 않아요.", 15f, C.DIM).margins(this, top = 6))
 
         root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 13f, C.GRAY).margins(this, top = 24))
+
+        // 주제별로 접어 두기 (제목을 누르면 펼침). 맨 위 버튼 체크칸·업데이트 확인은 항상 보임
+        makeCurtains(root, getSharedPreferences("ui", MODE_PRIVATE))
     }
 
     // ───────── 계산식 ─────────

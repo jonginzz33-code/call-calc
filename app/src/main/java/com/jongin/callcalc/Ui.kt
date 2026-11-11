@@ -16,6 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.jongin.callcalc.core.RegionColor
+import kotlin.math.roundToInt
 
 /** 색: 콜 화면처럼 검은 바탕. 운전 중에도 색만으로 구분되게 진하게 (시안 기준) */
 object C {
@@ -150,35 +151,113 @@ fun Activity.scrollPage(content: View): ScrollView {
 
 fun Context.sectionTitle(s: String) = text(s, 21f, C.FG, bold = true).apply {
     layoutParams = lp().also { it.setMargins(0, dp(24), 0, dp(8)) }
+    tag = SECTION_TAG
+}
+
+const val SECTION_TAG = "section"
+
+/**
+ * 커튼(접었다 펴기): root 안에서 sectionTitle 다음에 오는 칸들을 그 제목 아래 상자에 담아 접어 둔다.
+ * 제목을 누르면 펼치고, 다시 누르면 접는다. 펼침 상태는 기억한다.
+ */
+fun Context.makeCurtains(root: LinearLayout, prefs: android.content.SharedPreferences) {
+    val kids = (0 until root.childCount).map { root.getChildAt(it) }
+    root.removeAllViews()
+    var body: LinearLayout? = null
+    for (v in kids) {
+        if (v.tag == SECTION_TAG && v is TextView) {
+            val title = v.text.toString()
+            val key = "curtain_$title"
+            val box = vbox().apply { setPadding(dp(4), 0, dp(4), dp(8)) }
+            val head = hbox().apply {
+                background = roundBg(C.PANEL, C.LINE, 2, 14)
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                layoutParams = lp().also { it.setMargins(0, dp(10), 0, 0) }
+            }
+            head.addView(text(title, 19f, C.FG, bold = true), lp(0, weight = 1f))
+            val arrow = text("", 18f, C.ACCENT, bold = true)
+            head.addView(arrow)
+            fun apply(open: Boolean) {
+                box.visibility = if (open) View.VISIBLE else View.GONE
+                arrow.text = if (open) "접기 ▴" else "펼치기 ▾"
+            }
+            apply(prefs.getBoolean(key, false))
+            head.setOnClickListener {
+                val open = box.visibility != View.VISIBLE
+                prefs.edit().putBoolean(key, open).apply()
+                apply(open)
+            }
+            root.addView(head)
+            root.addView(box)
+            body = box
+        } else {
+            (body ?: root).addView(v)
+        }
+    }
 }
 
 /**
- * 픽업 1km당 분 빠른 고르기: [1분] [2분] [3분] [5분]. 고른 칸은 파랗게.
- * onChange 는 고른 뒤 (화면 다시 그리기 등)
+ * 픽업 1km당 분 슬라이더 (1~10분, 1분 단위) + 큰 숫자 + 예시 계산 + 빠른 버튼(2·3·5분).
+ * onChange 는 바꾼 뒤 (화면 다시 그리기 등)
  */
-fun Context.pickupChips(store: Store, onChange: () -> Unit): LinearLayout {
-    val row = hbox()
-    val choices = listOf(1.0, 2.0, 3.0, 5.0)
-    fun paint() {
-        for (i in 0 until row.childCount) {
-            val v = row.getChildAt(i) as TextView
-            val on = choices[i] == store.pickupMinPerKm
-            v.setTextColor(if (on) C.FG else C.ACCENT)
-            v.background = roundBg(if (on) C.BTN else C.PANEL, C.BTN, 2, 10)
-        }
+fun Context.pickupSlider(store: Store, onChange: () -> Unit): LinearLayout {
+    val box = vbox()
+    val head = hbox()
+    head.addView(text("픽업 1km당", 16f, C.DIM), lp(0, weight = 1f))
+    val big = text("", 28f, C.GOOD, bold = true)
+    head.addView(big)
+    box.addView(head)
+    val bar = android.widget.SeekBar(this).apply {
+        max = 9
+        setPadding(dp(14), dp(10), dp(14), dp(10))
     }
-    for (m in choices) {
-        row.addView(text("${Store.plain(m)}분", 18f, C.ACCENT, bold = true).apply {
+    box.addView(bar)
+    val ticks = hbox().apply { setPadding(dp(10), 0, dp(10), 0) }
+    val tickViews = (1..10).map { n ->
+        text("$n", 13f, C.GRAY).apply { gravity = Gravity.CENTER }.also { ticks.addView(it, lp(0, weight = 1f)) }
+    }
+    box.addView(ticks)
+    val example = text("", 15f, C.SUB).apply {
+        background = roundBg(C.PANEL, C.PANEL, 1, 12)
+        setPadding(dp(12), dp(8), dp(12), dp(8))
+        layoutParams = lp().also { it.topMargin = dp(8) }
+    }
+    box.addView(example)
+
+    fun show() {
+        val m = store.pickupMinPerKm.roundToInt().coerceIn(1, 10)
+        big.text = "${m}분"
+        if (bar.progress != m - 1) bar.progress = m - 1
+        tickViews.forEachIndexed { i, t ->
+            val on = i == m - 1
+            t.setTextColor(if (on) C.GOOD else C.GRAY)
+            t.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+        }
+        val raw = 8.4 * m
+        example.text = "예) 픽업 8.4km → 8.4 × $m = ${String.format(java.util.Locale.US, "%.1f", raw)} → ${Math.round(raw)}분"
+    }
+    fun set(m: Int) {
+        if (store.pickupMinPerKm == m.toDouble()) { show(); return }
+        store.pickupMinPerKm = m.toDouble()
+        show()
+        CallReaderService.instance?.settingsChanged()
+        onChange()
+    }
+    bar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+        override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) { if (fromUser) set(p + 1) }
+        override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+        override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+    })
+    val quick = hbox().apply { layoutParams = lp().also { it.topMargin = dp(8) } }
+    for (m in listOf(2, 3, 5)) {
+        quick.addView(text("${m}분", 16f, C.ACCENT, bold = true).apply {
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(10))
-            setOnClickListener {
-                store.pickupMinPerKm = m
-                paint()
-                CallReaderService.instance?.settingsChanged()
-                onChange()
-            }
+            setPadding(0, dp(8), 0, dp(8))
+            background = roundBg(C.PANEL, C.BTN, 2, 10)
+            setOnClickListener { set(m) }
         }, lp(0, weight = 1f).also { it.setMargins(dp(3), 0, dp(3), 0) })
     }
-    paint()
-    return row
+    box.addView(quick)
+    show()
+    return box
 }
