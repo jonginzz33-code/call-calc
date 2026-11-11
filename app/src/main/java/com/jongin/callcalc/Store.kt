@@ -13,18 +13,6 @@ import org.json.JSONObject
 class Store(context: Context) {
     private val p = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
-    init {
-        // v0.3.0: 식을 직접 저장해 둔 사람에게도 새 기본 식(1분당 금액)을 맨 앞에 넣고 선택
-        if (!p.getBoolean("migratedPerMinute", false)) {
-            p.edit().putBoolean("migratedPerMinute", true).apply()
-            if (p.getString("formulas", null) != null) {
-                val list = formulas
-                if (list.none { it.id == Defaults.PER_MINUTE_ID }) formulas = listOf(Defaults.formulas[0]) + list
-            }
-            selectedId = Defaults.PER_MINUTE_ID
-        }
-    }
-
     var formulas: List<Formula>
         get() {
             val raw = p.getString("formulas", null) ?: return Defaults.formulas
@@ -175,6 +163,18 @@ class Store(context: Context) {
         checkOrigin = checkOrigin,
         hideRedValue = hideRedValue,
     )
+
+    init {
+        // v0.3.0: 식을 직접 저장해 둔 사람에게도 새 기본 식(1분당 금액)을 맨 앞에 넣고 선택
+        if (!p.getBoolean("migratedPerMinute", false)) {
+            p.edit().putBoolean("migratedPerMinute", true).apply()
+            if (p.getString("formulas", null) != null) {
+                val list = formulas
+                if (list.none { it.id == Defaults.PER_MINUTE_ID }) formulas = listOf(Defaults.formulas[0]) + list
+            }
+            selectedId = Defaults.PER_MINUTE_ID
+        }
+    }
 
     companion object {
         /** 24000.0 → "24000", 1.5 → "1.5" */
