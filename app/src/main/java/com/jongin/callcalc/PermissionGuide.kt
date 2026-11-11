@@ -21,7 +21,34 @@ object PermissionGuide {
         val steps: List<String>,
         val granted: (Activity) -> Boolean,
         val open: (Activity) -> Unit,
+        val note: String? = null,                          // 막혔을 때 안내
+        val extra: Pair<String, (Activity) -> Unit>? = null, // 보조 버튼
     )
+
+    private val accessibility = Perm(
+        title = "접근성 (콜 계산기)",
+        why = "콜 앱 화면의 글자를 읽고, 콜 옆에 계산값을 띄워요.",
+        steps = listOf(
+            "아래 [켜러 가기]를 눌러요",
+            "'설치된 앱'(또는 '설치된 서비스')에서 콜 계산기를 눌러요",
+            "스위치를 켜고 [허용]을 눌러요",
+            "뒤로 가기를 눌러 돌아와요",
+        ),
+        note = "스위치가 회색으로 잠겨 안 켜지면: [앱 정보 열기] → 오른쪽 위 ⋮ → '제한된 설정 허용' → 다시 [켜러 가기]",
+        extra = "앱 정보 열기" to { a ->
+            a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
+        },
+        granted = { isAccessibilityOn(it) },
+        open = { it.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+    )
+
+    fun isAccessibilityOn(a: Activity): Boolean {
+        val enabled = Settings.Secure.getString(a.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        val cn = android.content.ComponentName(a, CallReaderService::class.java)
+        return enabled.split(':').any {
+            it.equals(cn.flattenToString(), ignoreCase = true) || it.equals(cn.flattenToShortString(), ignoreCase = true)
+        }
+    }
 
     private val installApps = Perm(
         title = "이 출처의 앱 허용",
@@ -35,7 +62,7 @@ object PermissionGuide {
         open = { it.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${it.packageName}"))) },
     )
 
-    fun all(): List<Perm> = listOf(installApps)
+    fun all(): List<Perm> = listOf(accessibility, installApps)
 
     fun missing(a: Activity): List<Perm> = all().filter { p -> runCatching { !p.granted(a) }.getOrDefault(false) }
 
@@ -46,7 +73,7 @@ object PermissionGuide {
         for (p in missing) box.addView(card(a, p))
         return MaterialAlertDialogBuilder(a)
             .setTitle("권한을 켜 주세요" + if (missing.size > 1) " (${missing.size}개)" else "")
-            .setView(box)
+            .setView(android.widget.ScrollView(a).apply { addView(box) })
             .setCancelable(false)
             .setNegativeButton("나중에") { _, _ -> later() }
             .show()
@@ -67,6 +94,13 @@ object PermissionGuide {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 .also { it.topMargin = a.dp(12) }
         })
+        p.note?.let { c.addView(a.text(it, 15f, C.DIM).margins(a, top = 10)) }
+        p.extra?.let { (label, act) ->
+            c.addView(a.button(label, outlined = true) { act(a) }.apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                    .also { it.topMargin = a.dp(6) }
+            })
+        }
         return c
     }
 

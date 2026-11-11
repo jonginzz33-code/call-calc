@@ -27,7 +27,14 @@ data class CallRow(
     val top: Int,
     val bottom: Int,
     val rawLines: List<String>, // 이 콜로 묶인 원본 글자
+    // 실시간 표시를 붙일 빈자리 (화면 좌표). 아랫줄 "72분" 오른쪽 ~ "카드" 왼쪽
+    val slotLeft: Int = 0,
+    val slotRight: Int = 0,
+    val slotY: Int = 0,
 ) {
+    /** 같은 콜인지 알아보는 열쇠 (스크롤해도 같은 값) */
+    val key: String get() = "$a|$b|$c|$destination"
+
     val complete: Boolean get() = a != null && b != null && c != null
 
     /** 못 읽은 값 설명. 다 읽었으면 빈 문자열 */
@@ -157,11 +164,27 @@ object CallParser {
             val destination = topLine.joinToString(" ") { Extract.placeText(it.text) }.trim()
             val origin = bottomLine.firstOrNull()?.let { originText(it.text) } ?: ""
 
+            // 표시 자리: 아랫줄의 시간 글자 오른쪽 ~ 결제 글자(또는 금액) 왼쪽
+            val timeItem = bottomLine.firstOrNull { Extract.minutes(it.text) != null }
+            val payItem = bottomLine.lastOrNull { Extract.payment(it.text) != null }
+            val priceItem = topLine.lastOrNull { Extract.money(it.text) != null }
+            var slotY = if (bottomLine.isNotEmpty()) bottomLine.map { it.centerY }.average().toInt()
+            else (anchor.bottom + 0.7f * h).toInt()
+            var slotLeft = timeItem?.right ?: bottomLine.firstOrNull()?.right ?: anchor.right
+            var slotRight = payItem?.left ?: priceItem?.left ?: (slotLeft + (6 * h).toInt())
+            if (slotRight - slotLeft < 2 * h) {
+                // 아랫줄에 빈자리가 없으면 윗줄의 km 오른쪽
+                slotY = anchor.centerY.toInt()
+                slotLeft = anchor.right
+                slotRight = maxOf(slotLeft + (4 * h).toInt(), (priceItem?.left ?: 0))
+            }
+
             rows += CallRow(
                 a = a, b = b, c = c,
                 origin = origin, destination = destination, payment = payment,
                 top = inRegion.minOf { it.top }, bottom = inRegion.maxOf { it.bottom },
                 rawLines = inRegion.map { it.text },
+                slotLeft = slotLeft, slotRight = slotRight, slotY = slotY,
             )
         }
         return rows

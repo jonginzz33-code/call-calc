@@ -92,6 +92,56 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(radios(listOf("계산값을 보여 주고 경고", "계산값 숨기기"), if (store.hideRedValue) 1 else 0) { store.hideRedValue = it == 1 })
         root.addView(text("어느 쪽이든 '제일 좋음'에서 빠져요.", 15f, C.DIM))
 
+        // ── 실시간 표시 ──
+        root.addView(sectionTitle("실시간 표시 (콜 앱 위)"))
+        val appRow = hbox().apply {
+            background = roundBg(C.PANEL, C.LINE, 2, 12)
+            setPadding(dp(14), dp(12), dp(10), dp(12))
+        }
+        val appText = text("", 17f)
+        fun refreshApps() { appText.text = "감시할 앱\n" + AppPicker.summary(this, store) }
+        refreshApps()
+        appRow.addView(appText, lp(0, weight = 1f))
+        appRow.addView(button("고르기", outlined = true) { AppPicker.show(this, store) { refreshApps() } })
+        root.addView(appRow)
+
+        root.addView(text("읽는 방식", 18f, bold = true).margins(this, top = 14))
+        root.addView(radios(listOf("자동 (접근성 먼저, 안 되면 화면 캡처)", "접근성만", "화면 캡처(OCR)만"), store.readMode) {
+            store.readMode = it; live()
+        })
+        root.addView(text("'제일 좋음' 범위", 18f, bold = true).margins(this, top = 10))
+        root.addView(radios(listOf("지금 보이는 콜 중 최고", "스크롤로 지나온 콜 전체 중 최고"), if (store.bestAllSeen) 1 else 0) {
+            store.bestAllSeen = it == 1; live()
+        })
+        root.addView(text("전체 중 최고는 화면 위에 \"최고: 초지동 12,000 (736)\"처럼 보여 줘요. 둥근 버튼을 길게 누르면 기억을 지워요.", 15f, C.DIM))
+        root.addView(text("표시 방식", 18f, bold = true).margins(this, top = 10))
+        lateinit var alphaLabel: android.widget.TextView
+        lateinit var alphaBar: android.widget.SeekBar
+        root.addView(radios(listOf("터치 통과 (표시 위를 눌러도 콜이 눌려요)", "진하게 (누를 땐 둥근 버튼으로 숨기기)"), if (store.overlaySolid) 1 else 0) {
+            store.overlaySolid = it == 1
+            if (!store.overlaySolid && store.overlayAlpha > 80) store.overlayAlpha = 80
+            alphaBar.progress = store.overlayAlpha - 20
+            live()
+        })
+        alphaLabel = text("", 17f).margins(this, top = 10) as android.widget.TextView
+        root.addView(alphaLabel)
+        alphaBar = slider(20, 100, store.overlayAlpha) { v ->
+            val max = if (store.overlaySolid) 100 else 80
+            val fixed = minOf(v, max)
+            store.overlayAlpha = fixed
+            alphaLabel.text = "불투명도 $fixed%" + if (!store.overlaySolid) " (터치 통과는 최대 80%)" else ""
+            live()
+        }
+        root.addView(alphaBar)
+        alphaLabel.text = "불투명도 ${store.overlayAlpha}%" + if (!store.overlaySolid) " (터치 통과는 최대 80%)" else ""
+        val sizeLabel = text("표시 글자 크기 ${store.overlayTextSp}", 17f).margins(this, top = 10) as android.widget.TextView
+        root.addView(sizeLabel)
+        root.addView(slider(12, 30, store.overlayTextSp) { v ->
+            store.overlayTextSp = v
+            sizeLabel.text = "표시 글자 크기 $v"
+            live()
+        })
+
         // ── 권한 ──
         root.addView(sectionTitle("권한"))
         permBox = vbox()
@@ -357,6 +407,25 @@ class SettingsActivity : AppCompatActivity() {
             val idx = (0 until g.childCount).indexOfFirst { g.getChildAt(it).id == id }
             if (idx >= 0) onPick(idx)
         }
+    }
+
+    /** 실시간 표시에 바로 반영 */
+    private fun live() = CallReaderService.instance?.settingsChanged()
+
+    override fun onPause() {
+        super.onPause()
+        live() // 기준 단가, 지역 단어 등도 반영
+    }
+
+    private fun slider(min: Int, max: Int, value: Int, onChange: (Int) -> Unit) = android.widget.SeekBar(this).apply {
+        this.max = max - min
+        progress = value - min
+        setPadding(dp(8), dp(12), dp(8), dp(12))
+        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) { if (fromUser) onChange(p + min) }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+        })
     }
 
     private fun afterChange(f: (String) -> Unit) = object : TextWatcher {

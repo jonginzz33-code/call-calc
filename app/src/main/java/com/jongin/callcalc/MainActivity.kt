@@ -51,6 +51,37 @@ class MainActivity : AppCompatActivity() {
     private var rawOpen = false
     private val openRows = mutableSetOf<Int>()
 
+    private lateinit var liveBox: LinearLayout
+
+    // 화면 캡처 허락 받기 → 캡처 서비스 시작
+    private val projectionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == RESULT_OK && res.data != null) {
+            val i = Intent(this, CaptureService::class.java)
+                .putExtra(CaptureService.EXTRA_CODE, res.resultCode)
+                .putExtra(CaptureService.EXTRA_DATA, res.data)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+            liveBox.postDelayed({ renderLive() }, 600)
+        }
+    }
+
+    // 알림 권한 (캡처 중 알림 표시용, 안드로이드 13+). 거절해도 캡처는 동작
+    private val notifLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        startProjection()
+    }
+
+    private fun startCapture() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else startProjection()
+    }
+
+    private fun startProjection() {
+        val mpm = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+        projectionLauncher.launch(mpm.createScreenCaptureIntent())
+    }
+
     private val pickImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) readImage(uri)
     }
@@ -72,6 +103,7 @@ class MainActivity : AppCompatActivity() {
         // 설정 화면에서 돌아오면 새 설정으로 다시 계산
         showFormula()
         if (hasResult) render()
+        renderLive()
         checkPermissions()
     }
 
@@ -89,6 +121,12 @@ class MainActivity : AppCompatActivity() {
                 android.widget.Toast.makeText(this, "권한 설정이 끝났어요 ✅", android.widget.Toast.LENGTH_SHORT).show()
             }
             guideDialog = null
+            // 권한이 다 켜졌는데 감시할 앱을 안 골랐으면 바로 고르게
+            if (store.targetPackages.isEmpty() && !appAsked) {
+                appAsked = true
+                AppPicker.show(this, store, "어느 콜 앱 위에 띄울까요?") { renderLive() }
+                return
+            }
             checkUpdateOnce()
             return
         }
@@ -117,7 +155,14 @@ class MainActivity : AppCompatActivity() {
         header.addView(text("v" + versionName(), 15f, C.DIM))
         root.addView(header)
 
-        val row1 = hbox().apply { margins(this@MainActivity, top = 14) }
+        liveBox = vbox().apply {
+            background = roundBg(C.PANEL, C.BTN, 2, 16)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        root.addView(liveBox.margins(this, top = 14))
+
+        root.addView(sectionTitle("스크린샷으로 시험하기"))
+        val row1 = hbox()
         row1.addView(button("📷 스크린샷 고르기", big = true) {
             pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }, lp(0, weight = 1f))
@@ -171,6 +216,55 @@ class MainActivity : AppCompatActivity() {
         root.addView(text("이 앱은 읽고 계산해서 보여 주기만 해요. 콜 수락은 직접 누르세요.", 13f, C.GRAY).margins(this, top = 24))
         showFormula()
         statusView.text = "아직 읽은 화면이 없어요."
+    }
+
+    /** 실시간 모드 상태와 버튼 */
+    private fun renderLive() {
+        if (!::liveBox.isInitialized) return
+        liveBox.removeAllViews()
+        liveBox.addView(text("🚗 실시간 모드", 21f, bold = true))
+        val accOn = PermissionGuide.isAccessibilityOn(this)
+        val apps = store.targetPackages
+        val mode = store.readMode
+        val capOn = CaptureService.instance != null
+
+        fun line(ok: Boolean, s: String) =
+            liveBox.addView(text((if (ok) "✅ " else "❌ ") + s, 17f, if (ok) C.FG else C.WARN, bold = !ok).margins(this, top = 6))
+        line(accOn, if (accOn) "접근성 켜짐" else "접근성 꺼짐")
+        line(apps.isNotEmpty(), "감시할 앱: " + AppPicker.summary(this, store))
+        liveBox.addView(text("읽는 방식: " + listOf("자동", "접근성만", "화면 캡처만")[mode.coerceIn(0, 2)], 16f, C.SUB).margins(this, top = 6))
+        if (mode != 1) {
+            liveBox.addView(text("화면 캡처: " + if (capOn) "켜짐 (알림에서 중지 가능)" else "꺼짐" + if (mode == 0) " (접근성으로 읽히면 필요 없어요)" else "",
+                16f, if (capOn) C.GOOD else C.SUB).margins(this, top = 2))
+        }
+
+        val btns = hbox().apply { margins(this@MainActivity, top = 12) }
+        if (!accOn) {
+            btns.addView(button("접근성 켜기") { checkPermissionsNow() }, lp(0, weight = 1f))
+        } else {
+            btns.addView(button("감시할 앱 고르기", outlined = apps.isNotEmpty()) {
+                AppPicker.show(this, store) { renderLive() }
+            }, lp(0, weight = 1f))
+        }
+        if (mode != 1) {
+            btns.addView(button(if (capOn) "캡처 중지" else "화면 캡처 시작", outlined = true) {
+                if (capOn) { CaptureService.stop(this); liveBox.postDelayed({ renderLive() }, 300) } else startCapture()
+            }, lp(0, weight = 1f).also { it.marginStart = dp(8) })
+        }
+        liveBox.addView(btns)
+
+        val ready = accOn && apps.isNotEmpty()
+        liveBox.addView(text(
+            if (ready) "콜 앱을 열면 화면 옆에 둥근 [콜 ON] 버튼이 생겨요.\n· 누르면 표시 켜기/끄기 · 끌어서 옮기기 · 길게 누르면 기억 지우기"
+            else "위의 ❌ 를 해결하면 콜 앱 위에 계산값이 떠요.",
+            15f, C.DIM,
+        ).margins(this, top = 10))
+    }
+
+    /** 숨긴 권한 안내도 다시 띄우기 */
+    private fun checkPermissionsNow() {
+        guideSnoozed = false
+        checkPermissions()
     }
 
     private fun versionName(): String = try {
@@ -390,6 +484,7 @@ class MainActivity : AppCompatActivity() {
         // 앱이 켜져 있는 동안 기억 (화면 회전 등으로 다시 만들어져도 유지)
         private var guideSnoozed = false
         private var updateChecked = false
+        private var appAsked = false
 
         /** 내부 표기 * / 를 화면 표기 × ÷ 로 */
         fun pretty(expr: String) = expr.replace("*", "×").replace("/", "÷")

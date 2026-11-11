@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="acc_summary">콜 목록을 읽어 계산값을 띄워요</string>
+    <string name="acc_desc">고른 콜 앱이 화면에 있을 때만 콜 목록의 거리·시간·금액 글자를 읽어서, 콜 옆에 계산값과 색을 띄워요.\n\n읽기만 해요. 자동 터치나 자동 수락은 하지 않아요. 읽은 내용은 폰 밖으로 보내지 않아요.</string>
+</resources>

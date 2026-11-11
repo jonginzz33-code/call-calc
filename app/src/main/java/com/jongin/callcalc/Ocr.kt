@@ -16,7 +16,7 @@ data class OcrResult(val items: List<TextItem>, val loadMs: Long, val ocrMs: Lon
 
 /** ML Kit 한국어 글자 인식 (앱에 포함된 모델, 인터넷 안 씀) */
 object Ocr {
-    private val recognizer by lazy { TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build()) }
+    val recognizer by lazy { TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build()) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 

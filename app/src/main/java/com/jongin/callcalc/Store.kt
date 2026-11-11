@@ -96,6 +96,51 @@ class Store(context: Context) {
         get() = p.getBoolean("autoUpdate", true)
         set(v) = p.edit().putBoolean("autoUpdate", v).apply()
 
+    // ───── 실시간 모드 ─────
+
+    /** 감시할 앱 (패키지 이름). 이 앱이 화면에 있을 때만 동작 */
+    var targetPackages: Set<String>
+        get() = p.getStringSet("targetPackages", emptySet())!!.toSet()
+        set(v) = p.edit().putStringSet("targetPackages", v).apply()
+
+    /** 읽는 방식: 0 자동(접근성 먼저, 안 되면 화면 캡처) / 1 접근성만 / 2 화면 캡처(OCR)만 */
+    var readMode: Int
+        get() = p.getInt("readMode", 0)
+        set(v) = p.edit().putInt("readMode", v).apply()
+
+    /** 제일 좋음 범위: false 보이는 것 중 최고 / true 지나온 것 전체 중 최고 */
+    var bestAllSeen: Boolean
+        get() = p.getBoolean("bestAllSeen", false)
+        set(v) = p.edit().putBoolean("bestAllSeen", v).apply()
+
+    /** 표시 방식: false 터치 통과(불투명도 80% 이하) / true 진하게(버튼으로 숨기기) */
+    var overlaySolid: Boolean
+        get() = p.getBoolean("overlaySolid", false)
+        set(v) = p.edit().putBoolean("overlaySolid", v).apply()
+
+    /** 불투명도 % (터치 통과 방식은 최대 80) */
+    var overlayAlpha: Int
+        get() = p.getInt("overlayAlpha", 80)
+        set(v) = p.edit().putInt("overlayAlpha", v).apply()
+
+    /** 표시 글자 크기 sp */
+    var overlayTextSp: Int
+        get() = p.getInt("overlayTextSp", 18)
+        set(v) = p.edit().putInt("overlayTextSp", v).apply()
+
+    /** 둥근 버튼으로 켠/끈 상태와 위치 */
+    var overlayOn: Boolean
+        get() = p.getBoolean("overlayOn", true)
+        set(v) = p.edit().putBoolean("overlayOn", v).apply()
+
+    var bubbleX: Int
+        get() = p.getInt("bubbleX", -1)
+        set(v) = p.edit().putInt("bubbleX", v).apply()
+
+    var bubbleY: Int
+        get() = p.getInt("bubbleY", -1)
+        set(v) = p.edit().putInt("bubbleY", v).apply()
+
     fun evalSettings() = EvalSettings(
         formulaExpr = selectedFormula.expr,
         threshold = threshold,
