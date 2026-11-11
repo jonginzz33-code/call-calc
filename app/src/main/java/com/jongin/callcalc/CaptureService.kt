@@ -149,7 +149,7 @@ class CaptureService : Service() {
         h.post {
             val t0 = SystemClock.elapsedRealtime()
             val full = try { grab() } catch (e: Exception) { null }
-            if (full == null) { main.post { done(Result.Error("화면을 아직 못 받았어요")) }; return@post }
+            if (full == null) { main.post { done(Result.Error("화면 캡처 준비 중이에요. 화면을 한 번 톡 쳐 주세요")) }; return@post }
             val l = (crop.left * scale).toInt().coerceIn(0, capW - 1)
             val t = (crop.top * scale).toInt().coerceIn(0, capH - 1)
             val r = (crop.right * scale).toInt().coerceIn(l + 1, capW)
@@ -204,26 +204,36 @@ class CaptureService : Service() {
     /** 다음 읽기는 화면이 같아도 OCR 하도록 (표시를 다시 그려야 할 때) */
     fun forgetLast() { lastHash = 0L }
 
+    // 마지막으로 받은 화면 한 장. 화면이 그대로면 안드로이드가 새 장을 안 줘서, 이걸로 읽는다
+    private var lastFrame: Bitmap? = null
+
+    /**
+     * 지금 화면 한 장 (매번 새 사본을 돌려줌, 쓰고 나서 recycle 해도 됨).
+     * 새 장이 없으면 = 화면이 안 바뀐 것 → 보관해 둔 마지막 장을 쓴다.
+     * 캡처를 켠 직후라 아직 한 장도 못 받았으면 null.
+     */
     private fun grab(): Bitmap? {
         val r = reader ?: return null
         var img = r.acquireLatestImage()
-        if (img == null) { SystemClock.sleep(80); img = r.acquireLatestImage() }
-        img ?: return null
-        img.use {
-            val plane = it.planes[0]
-            val pixelStride = plane.pixelStride
-            val rowPadding = plane.rowStride - pixelStride * capW
-            val full = Bitmap.createBitmap(capW + rowPadding / pixelStride, capH, Bitmap.Config.ARGB_8888)
-            val need = full.byteCount
-            val src = plane.buffer
-            // 마지막 줄에 여백이 없는 기기가 있어서, 모자라면 0으로 채운 버퍼에 옮겨 담는다
-            val buf = if (src.remaining() >= need) src else java.nio.ByteBuffer.allocate(need).apply { put(src); rewind() }
-            full.copyPixelsFromBuffer(buf)
-            if (full.width == capW) return full
-            val cropped = Bitmap.createBitmap(full, 0, 0, capW, capH)
-            full.recycle()
-            return cropped
+        if (img == null && lastFrame == null) { SystemClock.sleep(150); img = r.acquireLatestImage() }
+        if (img != null) {
+            val frame = img.use {
+                val plane = it.planes[0]
+                val pixelStride = plane.pixelStride
+                val rowPadding = plane.rowStride - pixelStride * capW
+                val full = Bitmap.createBitmap(capW + rowPadding / pixelStride, capH, Bitmap.Config.ARGB_8888)
+                val need = full.byteCount
+                val src = plane.buffer
+                // 마지막 줄에 여백이 없는 기기가 있어서, 모자라면 0으로 채운 버퍼에 옮겨 담는다
+                val buf = if (src.remaining() >= need) src else java.nio.ByteBuffer.allocate(need).apply { put(src); rewind() }
+                full.copyPixelsFromBuffer(buf)
+                if (full.width == capW) full
+                else Bitmap.createBitmap(full, 0, 0, capW, capH).also { full.recycle() }
+            }
+            lastFrame?.recycle()
+            lastFrame = frame
         }
+        return lastFrame?.copy(Bitmap.Config.ARGB_8888, false)
     }
 
     /** 작은 지문(격자 샘플)과 "거의 검은 화면인지" */
@@ -249,6 +259,7 @@ class CaptureService : Service() {
     }
 
     override fun onDestroy() {
+        bg?.post { lastFrame?.recycle(); lastFrame = null }
         instance = null
         display?.release()
         reader?.close()
