@@ -51,6 +51,28 @@ class SettingsActivity : AppCompatActivity() {
         header.addView(button("완료", outlined = true) { finish() })
         root.addView(header)
 
+        // 맨 위: 콜 앱 위에 띄울 버튼 (각각 따로)
+        val showBox = vbox().apply {
+            background = roundBg(C.PANEL, C.LINE, 2, 14)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            layoutParams = lp().also { it.topMargin = dp(12) }
+        }
+        fun showCheck(label: String, on: Boolean, set: (Boolean) -> Unit) = showBox.addView(
+            com.google.android.material.checkbox.MaterialCheckBox(this).apply {
+                text = label
+                textSize = 18f
+                setTextColor(C.FG)
+                isChecked = on
+                setOnCheckedChangeListener { _, v -> set(v); live() }
+            },
+        )
+        showCheck("콜 ON 띄우기", store.showCallOn) { store.showCallOn = it }
+        showCheck("콜 확인 띄우기", store.showCheckOn) { store.showCheckOn = it }
+        showBox.addView(text("두 버튼은 따로 끌어서 옮길 수 있어요. 꺼도 화면 터치 새로고침은 계속 돼요.", 14f, C.DIM).apply {
+            setPadding(dp(4), 0, 0, dp(6))
+        })
+        root.addView(showBox)
+
         // 업데이트 확인 (맨 위)
         val upCard = vbox().apply {
             background = roundBg(C.PANEL, C.BTN, 2, 14)
@@ -238,7 +260,7 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         // 버튼 위치
-        root.addView(button("[콜 ON] 버튼 위치 처음으로 (아래 가운데)", outlined = true) {
+        root.addView(button("버튼 위치 처음으로 (콜 ON 아래 가운데, 콜 확인 그 왼쪽)", outlined = true) {
             store.resetBubble()
             CallReaderService.instance?.resetBubble()
             android.widget.Toast.makeText(this, "버튼을 아래 가운데로 옮겼어요", android.widget.Toast.LENGTH_SHORT).show()

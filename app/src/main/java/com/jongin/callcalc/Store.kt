@@ -208,8 +208,26 @@ class Store(context: Context) {
 
     val kakaoKeyFromApp: Boolean get() = p.getString("kakaoKey", "")!!.isNotBlank()
 
-    /** [콜 ON] 버튼 위치를 처음(아래 가운데)으로 */
-    fun resetBubble() = p.edit().putInt("bubbleX", -1).putInt("bubbleY", -1).apply()
+    /** 콜 앱 위에 [콜 ON] / [콜 확인] 버튼 띄우기 (설정 맨 위 체크칸) */
+    var showCallOn: Boolean
+        get() = p.getBoolean("showCallOn", true)
+        set(v) = p.edit().putBoolean("showCallOn", v).apply()
+
+    var showCheckOn: Boolean
+        get() = p.getBoolean("showCheckOn", true)
+        set(v) = p.edit().putBoolean("showCheckOn", v).apply()
+
+    /** [콜 확인] 버튼 위치 (따로 움직임) */
+    var checkX: Int
+        get() = p.getInt("checkX", -1)
+        set(v) = p.edit().putInt("checkX", v).apply()
+
+    var checkY: Int
+        get() = p.getInt("checkY", -1)
+        set(v) = p.edit().putInt("checkY", v).apply()
+
+    /** 두 버튼 위치를 처음으로 ([콜 ON] 아래 가운데, [콜 확인] 그 왼쪽) */
+    fun resetBubble() = p.edit().putInt("bubbleX", -1).putInt("bubbleY", -1).putInt("checkX", -1).putInt("checkY", -1).apply()
 
     /** [앱 종료]를 누른 상태. 앱을 다시 열면 false */
     var paused: Boolean

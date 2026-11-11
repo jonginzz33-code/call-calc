@@ -76,6 +76,75 @@ object KakaoRoute {
         }
     }
 
+    /** 픽업 거리 결과. road 가 null 이면 추정값(직선 × 1.3) */
+    data class Pickup(
+        val straightKm: Double?,   // 직선 거리 (내 위치 → 출발지, 또는 콜 앱이 알려 준 값)
+        val roadKm: Double?,       // 실제 도로 거리 (카카오 길찾기)
+        val roadMin: Int?,
+        val origin: String,        // 지도에서 찾은 출발지 이름
+        val note: String?,         // 추정인 이유 등
+    ) {
+        val estimatedKm: Double? get() = straightKm?.let { it * DETOUR }
+    }
+
+    /** 도시에서 실제 도로 거리는 보통 직선의 1.2~1.4배 */
+    const val DETOUR = 1.3
+
+    /**
+     * [콜 확인]: 내 위치 → 출발지 도로 거리(km)만.
+     * 길찾기가 막혀 있으면 (사용 신청 승인 전) 직선 × 1.3 으로 추정.
+     */
+    fun pickup(ctx: Context, detail: CallDetail, key: String, done: (Pickup?, String?) -> Unit) {
+        val app = ctx.applicationContext
+        pool.execute {
+            val out: Result<Pickup> = runCatching {
+                val loc = currentLocation(app)
+                val me = loc?.let { Point(it.longitude, it.latitude, "내 위치") }
+                // 키가 없거나, 위치를 못 잡으면 → 콜 앱이 보여 준 직선 거리로 추정만
+                if (key.isBlank() || me == null) {
+                    val why = when {
+                        key.isBlank() -> "카카오 키가 없어서 추정값이에요 (설정 → 콜 확인에서 키 넣기)"
+                        !hasLocationPermission(app) -> "위치 권한이 없어서 추정값이에요"
+                        else -> "내 위치를 못 잡아서 추정값이에요"
+                    }
+                    if (detail.pickupKm == null) throw Problem(why.replace("추정값이에요", "거리를 알 수 없어요"))
+                    return@runCatching Pickup(detail.pickupKm, null, null, detail.origin, why)
+                }
+                val o = try {
+                    geocode(detail.origin, key, me)
+                } catch (e: Problem) {
+                    throw Problem("지도 검색(출발지 찾기)이 막혔어요 · ${e.message}")
+                } ?: throw Problem("출발지를 지도에서 못 찾았어요: ${detail.origin}")
+                val straight = distanceKm(me, o)
+                val leg = try {
+                    directions(me, o, key)
+                } catch (e: Problem) {
+                    return@runCatching Pickup(straight, null, null, o.name,
+                        "카카오 길찾기 사용 승인 전이라 추정값이에요 (${e.code})")
+                }
+                if (leg == null) Pickup(straight, null, null, o.name, "길찾기에 실패해서 추정값이에요")
+                else Pickup(straight, leg.meters / 1000.0, leg.minutes, o.name, null)
+            }
+            main.post {
+                out.onSuccess { done(it, null) }
+                    .onFailure { done(null, (it as? Problem)?.message ?: "계산에 실패했어요") }
+            }
+        }
+    }
+
+    /** 사용자에게 보여 줄 문제 (개발용 글자 없이). code 는 HTTP 상태 */
+    class Problem(msg: String, val code: String = "") : Exception(msg)
+
+    /** 두 점 사이 직선 거리 km */
+    fun distanceKm(a: Point, b: Point): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(b.y - a.y)
+        val dLon = Math.toRadians(b.x - a.x)
+        val h = Math.sin(dLat / 2).let { it * it } +
+            Math.cos(Math.toRadians(a.y)) * Math.cos(Math.toRadians(b.y)) * Math.sin(dLon / 2).let { it * it }
+        return 2 * r * Math.asin(Math.sqrt(h))
+    }
+
     /** 장소 이름 → 좌표. 가게·아파트 이름으로 먼저, 안 되면 점점 짧게 (동 이름까지) */
     private fun geocode(place: String, key: String, near: Point?): Point? {
         for (q in DetailParser.searchQueries(place)) {
@@ -123,13 +192,13 @@ object KakaoRoute {
         val code = c.responseCode
         if (code == 401 || code == 403) {
             c.disconnect()
-            throw IllegalStateException("카카오가 키를 거부했어요 (HTTP $code). 키나 카카오 개발자 설정을 확인해 주세요")
+            throw Problem("카카오가 거부했어요 (HTTP $code)", "HTTP $code")
         }
         if (code != 200) { c.disconnect(); return@runCatching null }
         val body = c.inputStream.bufferedReader().readText()
         c.disconnect()
         JSONObject(body)
-    }.getOrElse { if (it is IllegalStateException) throw it else null }
+    }.getOrElse { if (it is Problem) throw it else null }
 
     fun hasLocationPermission(ctx: Context) =
         ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||

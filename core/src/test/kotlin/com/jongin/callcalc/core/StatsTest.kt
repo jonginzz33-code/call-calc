@@ -82,6 +82,7 @@ class DetailTest {
         assertEquals("초지동 한신포차 안산초지점", d.origin)
         assertEquals("수원시 권선구 호매실동 호매실능실마을19단지아파트", d.destination)
         assertEquals(40.0, d.rideMin)
+        assertEquals(5.4, d.pickupKm)
     }
 
     @Test fun listScreenIsNotDetail() {

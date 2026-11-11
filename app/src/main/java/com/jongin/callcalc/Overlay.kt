@@ -80,7 +80,9 @@ class Overlay(
 
     /** 설정이 바뀌면 창 투명도 다시 적용 */
     fun applySettings() {
-        bubble?.let { b -> bubbleParams?.let { p -> p.flags = bubbleFlags(); runCatching { wm.updateViewLayout(b, p) } } }
+        watcher?.let { w -> watcherParams?.let { p -> p.flags = watcherFlags(); runCatching { wm.updateViewLayout(w, p) } } }
+        // 버튼 띄우기 체크칸 반영 (지금 버튼이 떠 있는 화면일 때만)
+        if (watcher != null) showBubble()
         val r = root ?: return
         val lp = r.layoutParams as WindowManager.LayoutParams
         lp.alpha = windowAlpha()
@@ -150,13 +152,17 @@ class Overlay(
 
         // 맨 위 안내: 배경·테두리 없이 반투명 글씨만 (그림자로 밝은 화면에서도 보이게)
         val b = bannerView ?: TextView(svc).apply {
+            // 흰 화면(카톡 등) 위에서도 보이게: 불투명 흰 글씨 + 굵은 검은 그림자 + 아주 옅은 검은 바탕
             textSize = 13f
-            setTextColor(Color.argb(170, 255, 255, 255))
+            setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
-            setShadowLayer(dp(2).toFloat(), 0f, 0f, Color.BLACK)
+            setShadowLayer(dp(3).toFloat(), 0f, 0f, Color.BLACK)
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(2), dp(6), dp(2))
-            background = null
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.argb(90, 0, 0, 0))
+                cornerRadius = dp(8).toFloat()
+            }
             maxLines = 3
             bannerView = this
             r.addView(this, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
@@ -222,20 +228,61 @@ class Overlay(
 
     // ───────── 둥근 버튼 ─────────
 
-    private fun bubbleFlags(): Int {
-        // FLAG_WATCH_OUTSIDE_TOUCH: 화면 어디를 만져도 "만졌다"는 신호만 받음 (위치는 모름, 터치는 그대로 아래 앱으로)
-        var f = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-        // 감시하는 앱이 떠 있는 동안 (= 버튼이 떠 있는 동안) 화면이 저절로 꺼지지 않게
+    private fun bubbleFlags(): Int =
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+
+    // ───────── 터치 감지 칸 (안 보임, 1픽셀) ─────────
+    // 버튼을 꺼도 "화면을 만졌다" 신호(터치 새로고침)와 화면 꺼짐 방지는 계속 되도록 따로 둔다.
+
+    private var watcher: View? = null
+    private var watcherParams: WindowManager.LayoutParams? = null
+
+    private fun watcherFlags(): Int {
+        // FLAG_WATCH_OUTSIDE_TOUCH: 화면 어디를 만져도 신호만 받음 (위치는 모름, 터치는 그대로 아래 앱으로)
+        var f = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         if (store.keepScreenOn) f = f or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         return f
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showWatcher() {
+        if (watcher != null) return
+        val v = View(svc)
+        v.setOnTouchListener { _, ev ->
+            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) onScreenTouch()
+            false
+        }
+        val lp = WindowManager.LayoutParams(
+            1, 1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, watcherFlags(), PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 0; y = 0 }
+        runCatching { wm.addView(v, lp) }
+        watcher = v
+        watcherParams = lp
+    }
+
+    private fun hideWatcher() {
+        watcher?.let { runCatching { wm.removeView(it) } }
+        watcher = null
+        watcherParams = null
+    }
+
+    /**
+     * 콜 앱 위 조작 칸 맞추기: 터치 감지 칸은 항상,
+     * [콜 ON] / [콜 확인] 은 설정 맨 위 체크칸에 따라 각각.
+     */
+    fun showBubble() {
+        showWatcher()
+        if (store.showCallOn) showOnButton() else hideOnButton()
+        if (store.showCheckOn) showCheck() else hideCheck()
     }
 
     /**
      * 둥근 버튼: 한 번 톡 = 표시 켜기/끄기, 두 번 톡 또는 길게 = 메뉴, 끌기 = 이동(위치 저장)
      */
     @SuppressLint("ClickableViewAccessibility")
-    fun showBubble() {
+    private fun showOnButton() {
         if (bubble != null) return
         val size = dp(54)
         val b = TextView(svc).apply {
@@ -288,7 +335,6 @@ class Overlay(
                         lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
                         lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
                         runCatching { wm.updateViewLayout(v, lp) }
-                        placeCheck()
                         highlightTrash(overTrash(lp.x + size / 2, lp.y + size / 2))
                     }
                 }
@@ -300,7 +346,6 @@ class Overlay(
                         if (drop) {
                             // 쓰레기통에 버림 → 앱 종료. 버튼 자리는 원래대로 (다음에 켤 때)
                             lp.x = startX; lp.y = startY
-                            placeCheck()
                             onTrash()
                         } else {
                             store.bubbleX = lp.x
@@ -326,7 +371,14 @@ class Overlay(
         bubble = b
         bubbleParams = lp
         updateBubbleLook()
-        showCheck()
+    }
+
+    private fun hideOnButton() {
+        hideMenu()
+        hideTrash()
+        bubble?.let { runCatching { wm.removeView(it) } }
+        bubble = null
+        bubbleParams = null
     }
 
     // ───────── [콜 확인] 버튼 (콜 ON 옆) ─────────
@@ -349,29 +401,45 @@ class Overlay(
                 setColor(Color.parseColor("#2F9E58"))
                 setStroke(dp(2), Color.WHITE)
             }
-            setOnClickListener { onCheck() }
         }
+        val dm = svc.resources.displayMetrics
         val lp = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.START; alpha = 0.9f }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 0.9f
+            // 처음 위치: [콜 ON] 처음 자리(아래 가운데)의 왼쪽
+            x = if (store.checkX >= 0) store.checkX else ((dm.widthPixels - size) / 2 - size - dp(12)).coerceAtLeast(0)
+            y = if (store.checkY >= 0) store.checkY else dm.heightPixels - size - navBarHeight() - dp(24)
+        }
+        // 톡 = 콜 확인, 끌기 = 이동 (위치 따로 기억)
+        val slop = ViewConfiguration.get(svc).scaledTouchSlop
+        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var moved = false
+        c.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = ev.rawX; downY = ev.rawY; startX = lp.x; startY = lp.y; moved = false }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = ev.rawX - downX; val dy = ev.rawY - downY
+                    if (!moved && (abs(dx) > slop || abs(dy) > slop)) moved = true
+                    if (moved) {
+                        lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
+                        lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
+                        runCatching { wm.updateViewLayout(v, lp) }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (moved) { store.checkX = lp.x; store.checkY = lp.y } else onCheck()
+                }
+            }
+            true
+        }
+        runCatching { wm.addView(c, lp) }
         check = c
         checkParams = lp
-        placeCheck(add = true)
-    }
-
-    /** [콜 ON] 바로 왼쪽에 (자리가 없으면 오른쪽) */
-    private fun placeCheck(add: Boolean = false) {
-        val c = check ?: return
-        val lp = checkParams ?: return
-        val bp = bubbleParams ?: return
-        val size = dp(54)
-        lp.x = if (bp.x - size - dp(10) >= 0) bp.x - size - dp(10) else bp.x + size + dp(10)
-        lp.y = bp.y
-        if (add) runCatching { wm.addView(c, lp) } else runCatching { wm.updateViewLayout(c, lp) }
     }
 
     private fun hideCheck() {
@@ -679,14 +747,12 @@ class Overlay(
         }
     }
 
+    /** 콜 앱이 아닌 화면으로 가면: 버튼·감지 칸·결과 창 모두 내림 */
     fun hideBubble() {
-        hideMenu()
+        hideOnButton()
         hideCheck()
         hideResult()
-        hideTrash()
-        bubble?.let { runCatching { wm.removeView(it) } }
-        bubble = null
-        bubbleParams = null
+        hideWatcher()
     }
 
     fun hideAll() {

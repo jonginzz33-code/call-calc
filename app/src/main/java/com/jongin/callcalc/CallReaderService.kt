@@ -270,7 +270,7 @@ class CallReaderService : AccessibilityService() {
             // 콜 상세 화면(수락 전)이면: 목록이 아니니 "못 읽었어요" 안내 없이, [콜 확인]을 쓰면 됨
             if (rows.isEmpty() && DetailParser.parse(items) != null) {
                 source = "접근성"
-                show(emptyList(), ms, "상세 화면 · [콜 확인]을 누르면 실제 도로로 분당 금액을 계산해요")
+                show(emptyList(), ms, "상세 화면 · [콜 확인]으로 픽업 거리 보기")
                 idle(HEARTBEAT)
                 return
             }
@@ -289,8 +289,8 @@ class CallReaderService : AccessibilityService() {
         val cap = CaptureService.instance
         if (cap == null) {
             val note = if (CaptureService.stoppedBySystem)
-                "⚠ 화면 캡처가 꺼졌어요 (화면이 꺼지면 안드로이드가 자동으로 꺼요) · 콜 계산기 앱에서 [화면 캡처 시작]을 다시 눌러 주세요"
-            else "글자를 못 읽었어요 · 콜 계산기 앱에서 [화면 캡처 시작]을 눌러 주세요"
+                "⚠ 화면 캡처 꺼짐 (화면이 꺼져서) · 앱에서 [화면 캡처 시작]"
+            else "글자를 못 읽었어요 · 앱에서 [화면 캡처 시작]"
             show(emptyList(), -1, note)
             idle(HEARTBEAT)
             return
@@ -324,7 +324,7 @@ class CallReaderService : AccessibilityService() {
                     if (store.overlayOn && !overlayVisible) { overlay.showLabels(out.rows, banner, labelBounds()); overlayVisible = true }
                 }
                 res is CaptureService.Result.Black ->
-                    show(emptyList(), -1, "화면 캡처가 막혀 있어요 (콜 앱이 캡처를 막음). 접근성 방식만 쓸 수 있어요")
+                    show(emptyList(), -1, "⚠ 이 앱은 화면 캡처를 막아 둠 · 접근성만 가능")
                 res is CaptureService.Result.Error -> show(emptyList(), -1, res.msg)
             }
             // 화면 캡처는 이벤트가 안 오는 변화(사진 넘기기 등)도 있어서 더 자주 확인 (같은 화면이면 OCR 안 함)
@@ -442,45 +442,58 @@ class CallReaderService : AccessibilityService() {
     }
 
     /**
-     * [콜 확인]: 상세 화면에서 금액·출발지·도착지를 읽고, 카카오 길찾기로
-     * 픽업(내 위치 → 출발지) + 운행(출발지 → 도착지) 실제 도로 시간을 구해 분당 금액을 계산
+     * [콜 확인]: 상세 화면에서 출발지를 읽고, 내 위치 → 출발지 도로 거리(km)를 보여 준다.
+     * 누를 때 화면을 새로 읽는다: 접근성 먼저, 안 되면 (화면 캡처가 켜져 있으면) 그 자리에서 찍어서 글자 인식.
      */
     private fun checkCall() {
         val root = runCatching { rootInActiveWindow }.getOrNull()
-        val items = root?.let { collect(it) }?.takeIf { DetailParser.parse(it) != null } ?: lastItems
-        val detail = DetailParser.parse(items)
-        if (detail == null) {
+        val accItems = root?.let { collect(it) }.orEmpty()
+        DetailParser.parse(accItems)?.let { runPickup(it); return }
+
+        val cap = CaptureService.instance
+        if (cap == null) {
             overlay.showResult("콜 확인", listOf(
-                "상세 화면(콜을 눌렀을 때 나오는 [콜 수락하기] 화면)에서 눌러 주세요." to C.FG,
-                "출발·도착 글자를 못 찾았어요." to C.GRAY,
+                "출발·도착 글자를 못 찾았어요." to C.FG,
+                "상세 화면([콜 수락하기]가 있는 화면)에서 눌러 주세요." to C.SUB,
+                "사진(갤러리)으로 시험할 땐 앱에서 [화면 캡처 시작]을 먼저 눌러 주세요." to C.WARN,
             ), null, C.FG)
             return
         }
-        overlay.showResult("콜 확인 · 계산 중…", listOf(
-            "출발  ${detail.origin}" to C.SUB,
-            "도착  ${detail.destination}" to C.SUB,
-        ), null, C.FG)
-        KakaoRoute.check(this, detail, store.kakaoKey) { r, err ->
-            if (r == null) {
+        overlay.showResult("콜 확인 · 화면 읽는 중…", emptyList(), null, C.FG)
+        cap.forgetLast() // 같은 화면이어도 새로 글자 인식
+        cap.captureAndRead(overlay.ownRects(), cap.defaultCrop(statusBarHeight())) { res ->
+            val items = (res as? CaptureService.Result.Items)?.items ?: lastItems
+            val d = DetailParser.parse(items)
+            if (d == null) {
+                overlay.showResult("콜 확인", listOf(
+                    "출발·도착 글자를 못 찾았어요." to C.FG,
+                    "상세 화면([콜 수락하기]가 있는 화면)에서 눌러 주세요." to C.SUB,
+                ), null, C.FG)
+            } else runPickup(d)
+        }
+    }
+
+    /** 픽업 거리 계산 → 결과 창 */
+    private fun runPickup(detail: com.jongin.callcalc.core.CallDetail) {
+        overlay.showResult("콜 확인 · 계산 중…", listOf("출발  ${detail.origin}" to C.SUB), null, C.FG)
+        KakaoRoute.pickup(this, detail, store.kakaoKey) { p, err ->
+            if (p == null) {
                 overlay.showResult("콜 확인", listOf((err ?: "계산에 실패했어요") to C.WARN), null, C.FG)
-                return@check
+                return@pickup
             }
+            fun km(v: Double) = String.format(java.util.Locale.US, "%.1fkm", v)
             val lines = mutableListOf<Pair<String, Int>>()
-            lines += "금액  ${com.jongin.callcalc.core.formatNumber(detail.price)}원" to C.FG
-            lines += (r.pickup?.let { "픽업  🚗 ${it.minutes}분 (${it.km})  →  ${r.origin.name}" }
-                ?: "픽업  —  (${r.pickupNote})") to (if (r.pickup != null) C.FG else C.WARN)
-            lines += "운행  🚗 ${r.ride.minutes}분 (${r.ride.km})  →  ${r.dest.name}" to C.FG
-            detail.rideMin?.let { lines += "      (콜 앱 안내: 약 ${Store.plain(it)}분)" to C.GRAY }
-            lines += "합계  ${r.totalMin}분" to C.FG
-            val per = r.perMinute
-            val color = when {
-                per == null -> C.FG
-                store.goodAlertOn && per >= store.goodAlertMin -> C.GOOD
-                store.threshold != null && per < store.threshold!! -> C.GRAY
-                else -> C.FG
+            lines += "출발  ${p.origin}" to C.SUB
+            val big: String
+            if (p.roadKm != null) {
+                big = "픽업 도로 거리  ${km(p.roadKm)}"
+                p.straightKm?.let { lines += "직선 ${km(it)}" + (p.roadMin?.let { m -> " · 차로 약 ${m}분" } ?: "") to C.SUB }
+            } else {
+                big = "픽업 약 ${km(p.estimatedKm!!)} (추정)"
+                lines += "직선 ${km(p.straightKm!!)} × ${KakaoRoute.DETOUR} (도로는 보통 직선보다 1.2~1.4배)" to C.SUB
             }
-            overlay.showResult("콜 확인 (실제 도로)", lines,
-                per?.let { "분당 ${com.jongin.callcalc.core.formatNumber(it)}원" }, color)
+            p.note?.let { lines += it to C.WARN }
+            overlay.showResult("콜 확인 · 픽업 거리", lines, big, if (p.roadKm != null) C.GOOD else C.FG)
         }
     }
 

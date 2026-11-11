@@ -107,6 +107,7 @@ data class CallDetail(
     val origin: String,
     val destination: String,
     val rideMin: Double?,   // 콜 앱이 알려 준 운행 시간 (참고용)
+    val pickupKm: Double? = null, // 콜 앱이 알려 준 내 위치 → 출발지 거리 (직선, "이동 도보 78분 약 5.9km")
 )
 
 object DetailParser {
@@ -138,7 +139,12 @@ object DetailParser {
         val destination = valueLines(end, stopTop)
         if (origin.isEmpty() || destination.isEmpty()) return null
         val ride = items.firstNotNullOfOrNull { rideRe.find(it.text)?.groupValues?.get(1)?.toDoubleOrNull() }
-        return CallDetail(price, origin, destination, ride)
+        // "이동" 줄의 km (출발 줄보다 위)
+        val move = label("이동")
+        val pickupKm = items
+            .filter { it.centerY < start.top && (move == null || kotlin.math.abs(it.centerY - move.centerY) <= move.height) }
+            .firstNotNullOfOrNull { Extract.km(it.text) }
+        return CallDetail(price, origin, destination, ride, pickupKm)
     }
 
     /**
