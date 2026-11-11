@@ -35,6 +35,7 @@ class Overlay(
     private val onScreenTouch: () -> Unit,
     private val onClearMemory: () -> Unit,
     private val onEditRegion: () -> Unit,
+    private val onTrash: () -> Unit,
 ) {
     private val wm = svc.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -272,18 +273,30 @@ class Overlay(
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = ev.rawX - downX; val dy = ev.rawY - downY
-                    if (!moved && (abs(dx) > slop || abs(dy) > slop)) { moved = true; v.removeCallbacks(longPress) }
+                    if (!moved && (abs(dx) > slop || abs(dy) > slop)) {
+                        moved = true; v.removeCallbacks(longPress)
+                        showTrash() // 끌기 시작하면 맨 위에 쓰레기통
+                    }
                     if (moved) {
                         lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
                         lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
                         runCatching { wm.updateViewLayout(v, lp) }
+                        highlightTrash(overTrash(lp.x + size / 2, lp.y + size / 2))
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.removeCallbacks(longPress)
                     if (moved) {
-                        store.bubbleX = lp.x
-                        store.bubbleY = lp.y
+                        val drop = overTrash(lp.x + size / 2, lp.y + size / 2)
+                        hideTrash()
+                        if (drop) {
+                            // 쓰레기통에 버림 → 앱 종료. 버튼 자리는 원래대로 (다음에 켤 때)
+                            lp.x = startX; lp.y = startY
+                            onTrash()
+                        } else {
+                            store.bubbleX = lp.x
+                            store.bubbleY = lp.y
+                        }
                     } else if (!longFired && ev.actionMasked == MotionEvent.ACTION_UP) {
                         val now = SystemClock.uptimeMillis()
                         if (now - lastTapAt < 300) {
@@ -304,6 +317,65 @@ class Overlay(
         bubble = b
         bubbleParams = lp
         updateBubbleLook()
+    }
+
+    // ───────── 쓰레기통 (끌어다 놓으면 종료) ─────────
+
+    private var trash: TextView? = null
+    private var trashCx = 0
+    private var trashCy = 0
+
+    private fun showTrash() {
+        if (trash != null) return
+        val dm = svc.resources.displayMetrics
+        val size = dp(84)
+        val t = TextView(svc).apply {
+            text = "🗑\n종료"
+            gravity = Gravity.CENTER
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        val lp = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (dm.widthPixels - size) / 2
+            y = statusBarHeight() + dp(24)
+        }
+        trashCx = lp.x + size / 2
+        trashCy = lp.y + size / 2
+        wm.addView(t, lp)
+        trash = t
+        highlightTrash(false)
+    }
+
+    /** 버튼 가운데가 쓰레기통 가까이 왔는지 */
+    private fun overTrash(cx: Int, cy: Int): Boolean {
+        if (trash == null) return false
+        val r = dp(70)
+        val dx = cx - trashCx; val dy = cy - trashCy
+        return dx * dx + dy * dy < r * r
+    }
+
+    private fun highlightTrash(on: Boolean) {
+        val t = trash ?: return
+        t.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(if (on) Color.parseColor("#E5D63B3B") else Color.parseColor("#CC2B323C"))
+            setStroke(dp(3), if (on) Color.WHITE else Color.parseColor("#FF8A8A"))
+        }
+        t.scaleX = if (on) 1.2f else 1f
+        t.scaleY = if (on) 1.2f else 1f
+    }
+
+    private fun hideTrash() {
+        trash?.let { runCatching { wm.removeView(it) } }
+        trash = null
     }
 
     // ───────── 메뉴 ─────────
@@ -512,6 +584,7 @@ class Overlay(
 
     fun hideBubble() {
         hideMenu()
+        hideTrash()
         bubble?.let { runCatching { wm.removeView(it) } }
         bubble = null
         bubbleParams = null

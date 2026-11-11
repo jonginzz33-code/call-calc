@@ -101,6 +101,13 @@ class CallReaderService : AccessibilityService() {
                 schedule(50)
             },
             onEditRegion = { editRegion() },
+            onTrash = {
+                // 쓰레기통에 버림 = [앱 종료]와 같음. 앱을 다시 열면 켜짐
+                store.paused = true
+                if (CaptureService.instance != null) CaptureService.stop(this)
+                pause()
+                Toast.makeText(this, "종료했어요. 앱을 다시 열면 켜져요", Toast.LENGTH_SHORT).show()
+            },
         )
         // 화면이 다시 켜지면: 꺼지면서 끊긴 화면 캡처를 다시 묻기
         androidx.core.content.ContextCompat.registerReceiver(this, screenReceiver, android.content.IntentFilter().apply {
