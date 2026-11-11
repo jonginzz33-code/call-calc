@@ -263,6 +263,10 @@ class MainActivity : AppCompatActivity() {
         if (mode != 1) {
             liveBox.addView(text("화면 캡처: " + if (capOn) "켜짐 (알림에서 중지 가능)" else "꺼짐" + if (mode == 0) " (접근성으로 읽히면 필요 없어요)" else "",
                 16f, if (capOn) C.GOOD else C.SUB).margins(this, top = 2))
+            if (!capOn && CaptureService.stoppedBySystem) {
+                liveBox.addView(text("⚠ 화면이 꺼져서 안드로이드가 화면 캡처를 자동으로 껐어요. [화면 캡처 시작]을 다시 눌러 주세요.",
+                    16f, C.WARN, bold = true).margins(this, top = 4))
+            }
         }
 
         val btns = hbox().apply { margins(this@MainActivity, top = 12) }

@@ -175,7 +175,10 @@ class CallReaderService : AccessibilityService() {
     private fun readByOcr() {
         val cap = CaptureService.instance
         if (cap == null) {
-            show(emptyList(), -1, "글자를 못 읽었어요 · 콜 계산기 앱에서 [화면 캡처 시작]을 눌러 주세요")
+            val note = if (CaptureService.stoppedBySystem)
+                "⚠ 화면 캡처가 꺼졌어요 (화면이 꺼지면 안드로이드가 자동으로 꺼요) · 콜 계산기 앱에서 [화면 캡처 시작]을 다시 눌러 주세요"
+            else "글자를 못 읽었어요 · 콜 계산기 앱에서 [화면 캡처 시작]을 눌러 주세요"
+            show(emptyList(), -1, note)
             schedule(HEARTBEAT)
             return
         }

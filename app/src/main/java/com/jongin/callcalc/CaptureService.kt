@@ -55,7 +55,7 @@ class CaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == ACTION_STOP) { userStopping = true; stopSelf(); return START_NOT_STICKY }
         startForegroundNow()
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         val data: Intent? = if (Build.VERSION.SDK_INT >= 33) intent?.getParcelableExtra(EXTRA_DATA, Intent::class.java)
@@ -95,7 +95,11 @@ class CaptureService : Service() {
         thread = HandlerThread("capture").also { it.start() }
         bg = Handler(thread!!.looper)
         p.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() { main.post { stopSelf() } }
+            override fun onStop() {
+                // 사용자가 [중지]를 누른 게 아니면 안드로이드가 끈 것 (화면 꺼짐·잠금 등)
+                if (!userStopping) stoppedBySystem = true
+                main.post { stopSelf() }
+            }
         }, main)
 
         val (sw, sh) = screenSize()
@@ -110,6 +114,8 @@ class CaptureService : Service() {
         reader = r
         projection = p
         instance = this
+        stoppedBySystem = false
+        userStopping = false
         CallReaderService.instance?.captureStateChanged()
     }
 
@@ -246,6 +252,14 @@ class CaptureService : Service() {
         private const val NOTI_ID = 7
         @Volatile var instance: CaptureService? = null
 
-        fun stop(ctx: Context) = ctx.stopService(Intent(ctx, CaptureService::class.java))
+        /** 안드로이드가 캡처를 끝냈는지 (화면이 꺼지면 자동으로 끝남). 다시 시작하면 false */
+        @Volatile var stoppedBySystem = false
+        @Volatile private var userStopping = false
+
+        fun stop(ctx: Context) {
+            userStopping = true
+            stoppedBySystem = false
+            ctx.stopService(Intent(ctx, CaptureService::class.java))
+        }
     }
 }
