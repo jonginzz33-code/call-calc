@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.jongin.callcalc.core.EvaluatedRow
 import com.jongin.callcalc.core.LiveRules
@@ -474,74 +475,71 @@ class Overlay(
         result = box
     }
 
-    /** [콜 확인] 결과 카드에 들어갈 내용 */
+    /** [콜 확인] 간추린 결과 (4줄) */
     data class CheckCard(
-        val pickupPlace: String, val pickupKm: String, val pickupMin: String, val pickupNote: String?,
-        val ridePlace: String, val rideKm: String, val rideMin: String, val rideNote: String?,
-        val total: String, val price: String, val perMin: String, val perFormula: String, val perColor: Int,
-        val footer: String,
+        val per: String, val perColor: Int,          // 맨 위 오른쪽 큰 숫자: 분당 금액
+        val pickupPlace: String, val pickupVal: String, val pickupTag: String?,
+        val ridePlace: String, val rideVal: String, val rideToll: String?, val rideTag: String?,
+        val total: String, val money: String,       // 마지막 줄: 총 시간, 톨비 뺀 금액
+        val warn: String?,                          // 문제 있을 때만 작은 한 줄
     )
 
-    /** 두 구간 + 총 시간 + 금액 + 분당 금액 (시안 모양). 계산 중엔 "…" 로 채우고 다시 불러서 갱신 */
+    /**
+     * 간추린 결과 창: 화면 위쪽에 작게 (아래 [콜 수락하기]를 가리지 않게). 누르면 닫힘.
+     *   🚗 콜 확인                213원/분
+     *   ① 픽업 초지동 아성…   21.7km · 37분
+     *   ② 운행 호매실동  24.1km · 38분 톨 2,400
+     *   총 75분      18,400 − 톨 2,400 = 16,000원
+     */
     fun showCheckCard(c: CheckCard) {
         hideResult()
-        val box = svc.vbox(16).apply {
-            background = svc.roundBg(Color.parseColor("#F21E232B"), Color.parseColor("#2F9E58"), 2, 18)
+        val box = svc.vbox().apply {
+            background = svc.roundBg(Color.parseColor("#F51E232B"), Color.parseColor("#2F9E58"), 2, 14)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             setOnClickListener { hideResult() }
         }
-        val head = svc.hbox()
-        head.addView(svc.text("🚗 콜 확인", 18f, Color.WHITE, bold = true), lp(0, weight = 1f))
-        head.addView(svc.text("TMAP 실시간 교통", 13f, C.SUB))
-        box.addView(head)
+        val top = svc.hbox()
+        top.addView(svc.text("🚗 콜 확인", 14f, C.SUB, bold = true), lp(0, weight = 1f))
+        top.addView(svc.text(c.per, 26f, c.perColor, bold = true).apply { includeFontPadding = false })
+        box.addView(top)
 
-        fun leg(icon: String, label: String, place: String, km: String, min: String, note: String?) {
-            val row = svc.hbox().apply {
-                background = svc.roundBg(Color.parseColor("#161A21"), Color.parseColor("#2B323C"), 2, 12)
-                setPadding(dp(10), dp(8), dp(12), dp(8))
-                layoutParams = lp().also { it.topMargin = dp(8) }
-            }
-            row.addView(svc.text(icon, 20f).apply { setPadding(0, 0, dp(8), 0) })
-            val mid = svc.vbox()
-            mid.addView(svc.text(label, 12f, C.DIM))
-            mid.addView(svc.text(place, 15f, Color.WHITE, bold = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
-            if (note != null) mid.addView(svc.text(note, 12f, C.WARN).apply { maxLines = 2 })
-            row.addView(mid, lp(0, weight = 1f))
-            val right = svc.vbox().apply { gravity = Gravity.END }
-            right.addView(svc.text(km, 19f, Color.WHITE, bold = true).apply { gravity = Gravity.END })
-            right.addView(svc.text(min, 15f, C.ACCENT, bold = true).apply { gravity = Gravity.END })
-            row.addView(right)
-            box.addView(row)
+        fun row(label: String, place: String, value: String, extra: String?, tag: String?) {
+            val r = svc.hbox().apply { layoutParams = lp().also { it.topMargin = dp(4) } }
+            r.addView(svc.text("$label ", 14f, C.DIM))
+            r.addView(svc.text(place, 14f, Color.WHITE, bold = true).apply {
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, lp(0, weight = 1f))
+            r.addView(svc.text(value, 14f, Color.WHITE, bold = true).apply { setPadding(dp(6), 0, 0, 0) })
+            extra?.let { r.addView(svc.text(" $it", 12f, C.BAD, bold = true)) }
+            tag?.let { r.addView(svc.text(" $it", 11f, C.WARN, bold = true)) }
+            box.addView(r)
         }
-        leg("📍", "① 내 위치 → 출발지", c.pickupPlace, c.pickupKm, c.pickupMin, c.pickupNote)
-        leg("🏁", "② 출발지 → 도착지", c.ridePlace, c.rideKm, c.rideMin, c.rideNote)
+        row("①", c.pickupPlace, c.pickupVal, null, c.pickupTag)
+        row("②", c.ridePlace, c.rideVal, c.rideToll, c.rideTag)
 
-        fun bigBox(label: String, value: String, fg: Int, bg: Int, size: Float) = svc.vbox().apply {
-            gravity = Gravity.CENTER
-            background = svc.roundBg(bg, fg, 2, 14)
-            setPadding(dp(6), dp(6), dp(6), dp(8))
-            addView(svc.text(label, 12f, fg).apply { gravity = Gravity.CENTER })
-            addView(svc.text(value, size, fg, bold = true).apply { gravity = Gravity.CENTER })
+        val bottom = svc.hbox().apply {
+            layoutParams = lp().also { it.topMargin = dp(6) }
+            setPadding(0, dp(5), 0, 0)
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.TRANSPARENT) }
         }
-        val two = svc.hbox().apply { layoutParams = lp().also { it.topMargin = dp(10) } }
-        two.addView(bigBox("총 시간 (①+②)", c.total, C.ACCENT, Color.parseColor("#16263F"), 24f),
-            lp(0, weight = 1f).also { it.marginEnd = dp(6) })
-        two.addView(bigBox("금액 (실수익)", c.price, C.WARN, Color.parseColor("#2B2410"), 24f),
-            lp(0, weight = 1f).also { it.marginStart = dp(6) })
-        box.addView(two)
-        val perBg = if (c.perColor == C.GOOD) Color.parseColor("#123A1C") else Color.parseColor("#1A1D22")
-        box.addView(bigBox(c.perFormula, c.perMin, c.perColor, perBg, 34f).apply {
-            layoutParams = lp().also { it.topMargin = dp(10) }
-        })
-        box.addView(svc.text(c.footer, 12f, C.GRAY).margins(svc, top = 8))
+        bottom.addView(svc.text(c.total, 13f, C.ACCENT, bold = true), lp(0, weight = 1f))
+        bottom.addView(svc.text(c.money, 13f, C.WARN, bold = true))
+        box.addView(View(svc).apply { setBackgroundColor(Color.parseColor("#2B323C")) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).also { it.topMargin = dp(6) })
+        box.addView(bottom)
+        c.warn?.let { box.addView(svc.text(it, 11f, C.WARN).apply { maxLines = 2 }.margins(svc, top = 3)) }
 
         val dm = svc.resources.displayMetrics
         val lp = WindowManager.LayoutParams(
-            (dm.widthPixels * 0.9).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
+            (dm.widthPixels * 0.92).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.CENTER }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = statusBarHeight() + dp(56) // 맨 위 통계 글씨 바로 아래
+        }
         runCatching { wm.addView(box, lp) }
         result = box
     }

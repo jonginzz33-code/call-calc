@@ -531,19 +531,13 @@ class CallReaderService : AccessibilityService() {
     }
 
     private fun render(r: CallCheck.Result) {
-        fun km(v: Double?) = v?.let { String.format(java.util.Locale.US, "%.1fkm", it) } ?: "—"
-        fun legKm(l: CallCheck.Leg?) = when {
+        fun num(v: Double) = com.jongin.callcalc.core.formatNumber(v)
+        fun km(v: Double?) = v?.let { String.format(java.util.Locale.US, "%.1fkm", it) }
+        fun legVal(l: CallCheck.Leg?) = when {
             l == null -> "계산 중…"
-            l.estimated && l.km != null -> "약 ${km(l.km)}"
-            else -> km(l.km)
+            else -> listOfNotNull(km(l.km), l.min?.let { "${it}분" }).joinToString(" · ").ifEmpty { "—" }
         }
-        fun legMin(l: CallCheck.Leg?) = when {
-            l == null -> ""
-            l.min == null -> "—"
-            l.estimated -> "약 ${l.min}분"
-            else -> "${l.min}분"
-        }
-        val price = com.jongin.callcalc.core.formatNumber(r.detail.price)
+        fun short(place: String) = place.split(' ').let { w -> if (w.size > 2) w.takeLast(2).joinToString(" ") else place }
         val per = r.perMinute
         val perColor = when {
             per == null -> C.SUB
@@ -551,25 +545,27 @@ class CallReaderService : AccessibilityService() {
             store.threshold != null && per < store.threshold!! -> C.GRAY
             else -> C.FG
         }
-        val total = r.totalMin
-        val anyEstimate = r.pickup?.estimated == true || r.ride?.estimated == true
-        val totalKm = listOfNotNull(r.pickup?.km, r.ride?.km).takeIf { it.size == 2 }?.sum()
-        val footer = listOfNotNull(
-            totalKm?.let { "총 거리 ${km(it)}" },
-            r.detail.rideMin?.let { "콜 앱 안내 운행 약 ${Store.plain(it)}분" },
-            if (r.detail.hasVia) "경유지 있음" else null,
-            if (anyEstimate) "\"약\"은 추정값" else null,
-            "아무 데나 누르면 닫혀요",
-        ).joinToString(" · ")
+        val toll = r.toll
+        val money = if (toll > 0) "${num(r.detail.price)} − 톨 ${num(toll.toDouble())} = ${num(r.net)}원"
+            else "${num(r.detail.price)}원"
+        val pickupTag = if (r.pickup?.estimated == true) "추정" else null
+        val rideTag = listOfNotNull(
+            if (r.detail.hasVia) "경유" else null,
+            if (r.ride?.estimated == true) "추정" else null,
+        ).joinToString("·").ifEmpty { null }
+        // 문제가 있을 때만 작은 한 줄 (경유 안내는 태그로 충분해서 빼기)
+        val warn = listOfNotNull(r.pickup?.note, r.ride?.note)
+            .map { it.replace(Regex("경유지 있음[^·]*·?\\s*"), "").trim() }
+            .filter { it.isNotBlank() }.distinct().joinToString(" · ").ifEmpty { null }
         overlay.showCheckCard(Overlay.CheckCard(
-            pickupPlace = r.originName, pickupKm = legKm(r.pickup), pickupMin = legMin(r.pickup), pickupNote = r.pickup?.note,
-            ridePlace = r.destName, rideKm = legKm(r.ride), rideMin = legMin(r.ride), rideNote = r.ride?.note,
-            total = total?.let { "${it}분" } ?: "…",
-            price = "${price}원",
-            perMin = per?.let { "${com.jongin.callcalc.core.formatNumber(it)}원/분" } ?: if (r.done) "—" else "계산 중…",
-            perFormula = if (total != null) "분당 금액 = $price ÷ ${total}분" else "분당 금액",
+            per = per?.let { "${num(it)}원/분" } ?: if (r.done) "—" else "계산 중…",
             perColor = perColor,
-            footer = footer,
+            pickupPlace = short(r.originName), pickupVal = legVal(r.pickup), pickupTag = pickupTag,
+            ridePlace = short(r.destName), rideVal = legVal(r.ride),
+            rideToll = if (toll > 0) "톨 ${num(toll.toDouble())}" else null, rideTag = rideTag,
+            total = r.totalMin?.let { "총 ${it}분" } ?: "총 …",
+            money = money,
+            warn = warn,
         ))
     }
 

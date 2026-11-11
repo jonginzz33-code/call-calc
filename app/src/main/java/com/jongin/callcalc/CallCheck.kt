@@ -30,7 +30,7 @@ object CallCheck {
     data class Point(val x: Double, val y: Double, val name: String) // x 경도, y 위도
 
     /** 한 구간. estimated = true 면 추정값 */
-    data class Leg(val km: Double?, val min: Int?, val estimated: Boolean, val note: String? = null)
+    data class Leg(val km: Double?, val min: Int?, val estimated: Boolean, val note: String? = null, val toll: Int = 0)
 
     data class Result(
         val detail: CallDetail,
@@ -45,7 +45,12 @@ object CallCheck {
             val r = ride?.min ?: return null
             return p + r
         }
-        val perMinute: Double? get() = totalMin?.takeIf { it > 0 }?.let { detail.price / it }
+        /** ② 운행 구간 통행료 (TMAP 추천 경로, 승용차) */
+        val toll: Int get() = ride?.toll ?: 0
+        /** 톨비 뺀 금액 */
+        val net: Double get() = detail.price - toll
+        /** 분당 금액 = (실수익 − 톨비) ÷ 총 시간 */
+        val perMinute: Double? get() = totalMin?.takeIf { it > 0 }?.let { net / it }
     }
 
     /** 도시에서 실제 도로 거리는 보통 직선의 1.2~1.4배 */
@@ -78,10 +83,10 @@ object CallCheck {
             val dF = pool.submit<Point?> { findPlace(detail.destination, key, my) }
             val (o, oErr) = get(oF)
             // ① 픽업 길찾기 (출발지 찾자마자 시작)
-            val pickF: Future<Pair<Int, Int>?>? = if (o != null && my != null) pool.submit<Pair<Int, Int>?> { carRoute(my, o, key) } else null
+            val pickF: Future<Triple<Int, Int, Int>?>? = if (o != null && my != null) pool.submit<Triple<Int, Int, Int>?> { carRoute(my, o, key) } else null
             val (d, dErr) = get(dF)
             // ② 운행 길찾기
-            val rideF: Future<Pair<Int, Int>?>? = if (o != null && d != null) pool.submit<Pair<Int, Int>?> { carRoute(o, d, key) } else null
+            val rideF: Future<Triple<Int, Int, Int>?>? = if (o != null && d != null) pool.submit<Triple<Int, Int, Int>?> { carRoute(o, d, key) } else null
             cur = cur.copy(originName = o?.name ?: detail.origin, destName = d?.name ?: detail.destination)
 
             // ① 결과 먼저 보여 주기
@@ -102,7 +107,7 @@ object CallCheck {
                 o == null || d == null -> estimateRide(detail, (dErr ?: oErr) ?: "도착지를 지도에서 못 찾아서 콜 앱 안내 시간")
                 else -> {
                     val (r, err) = get(rideF!!)
-                    if (r != null) Leg(r.first / 1000.0, Math.round(r.second / 60.0).toInt(), false)
+                    if (r != null) Leg(r.first / 1000.0, Math.round(r.second / 60.0).toInt(), false, toll = r.third)
                     else estimateRide(detail, err ?: "운행 길찾기 실패로 콜 앱 안내 시간")
                 }
             }
@@ -157,19 +162,21 @@ object CallCheck {
         return null
     }
 
-    /** TMAP 자동차 경로안내 (추천, 교통 반영). (거리 m, 시간 초) */
-    private fun carRoute(o: Point, d: Point, key: String): Pair<Int, Int>? {
+    /** TMAP 자동차 경로안내 (추천, 교통 반영, 승용차). (거리 m, 시간 초, 통행료 원) */
+    private fun carRoute(o: Point, d: Point, key: String): Triple<Int, Int, Int>? {
         val body = JSONObject()
             .put("startX", o.x.toString()).put("startY", o.y.toString())
             .put("endX", d.x.toString()).put("endY", d.y.toString())
             .put("reqCoordType", "WGS84GEO").put("resCoordType", "WGS84GEO")
             .put("searchOption", "0")
+            .put("carType", 1) // 승용차 (통행료 계산용)
             .put("totalValue", 2)
         val j = request("$API/routes?version=1", key, body.toString()) ?: return null
         val props = j.optJSONArray("features")?.optJSONObject(0)?.optJSONObject("properties") ?: return null
         val dist = props.optInt("totalDistance", -1)
         val time = props.optInt("totalTime", -1)
-        return if (dist < 0 || time < 0) null else dist to time
+        val fare = props.optInt("totalFare", 0).coerceAtLeast(0)
+        return if (dist < 0 || time < 0) null else Triple(dist, time, fare)
     }
 
     /** 403·429 는 잠깐 뒤 한 번 더 (동시에 여러 번 부르면 순간적으로 막힐 수 있어서) */
