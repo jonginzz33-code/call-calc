@@ -243,7 +243,7 @@ class CallReaderService : AccessibilityService() {
         if (store.paused) { hideLabels(); overlay.hideBubble(); return }
         val root = runCatching { rootInActiveWindow }.getOrNull()
         val pkg = root?.packageName?.toString()
-        // 콜 계산기 자기 화면 위에서는 표시하지 않음
+        // 계산기 자기 화면 위에서는 표시하지 않음
         if (pkg == null || pkg == packageName || !store.watches(pkg)) {
             // 키보드나 알림창 등이 잠깐 위에 올라온 경우가 아니면 숨긴다
             if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg }
@@ -476,7 +476,7 @@ class CallReaderService : AccessibilityService() {
     /** 픽업 거리 계산 → 결과 창 */
     private fun runPickup(detail: com.jongin.callcalc.core.CallDetail) {
         overlay.showResult("콜 확인 · 계산 중…", listOf("출발  ${detail.origin}" to C.SUB), null, C.FG)
-        KakaoRoute.pickup(this, detail, store.kakaoKey) { p, err ->
+        PickupRoute.pickup(this, detail, store.tmapKey) { p, err ->
             if (p == null) {
                 overlay.showResult("콜 확인", listOf((err ?: "계산에 실패했어요") to C.WARN), null, C.FG)
                 return@pickup
@@ -487,10 +487,11 @@ class CallReaderService : AccessibilityService() {
             val big: String
             if (p.roadKm != null) {
                 big = "픽업 도로 거리  ${km(p.roadKm)}"
-                p.straightKm?.let { lines += "직선 ${km(it)}" + (p.roadMin?.let { m -> " · 차로 약 ${m}분" } ?: "") to C.SUB }
+                p.roadMin?.let { lines += "차로 약 ${it}분 (TMAP 실시간 교통)" to C.FG }
+                p.straightKm?.let { lines += "직선 ${km(it)}" to C.SUB }
             } else {
                 big = "픽업 약 ${km(p.estimatedKm!!)} (추정)"
-                lines += "직선 ${km(p.straightKm!!)} × ${KakaoRoute.DETOUR} (도로는 보통 직선보다 1.2~1.4배)" to C.SUB
+                lines += "직선 ${km(p.straightKm!!)} × ${PickupRoute.DETOUR} (도로는 보통 직선보다 1.2~1.4배)" to C.SUB
             }
             p.note?.let { lines += it to C.WARN }
             overlay.showResult("콜 확인 · 픽업 거리", lines, big, if (p.roadKm != null) C.GOOD else C.FG)

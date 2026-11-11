@@ -251,12 +251,15 @@ class SettingsActivity : AppCompatActivity() {
             android.widget.Toast.makeText(this, "통계 기록을 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
         }.margins(this, top = 6))
 
-        // 콜 확인 (카카오 길찾기)
-        root.addView(text("콜 확인 (실제 도로 거리)", 18f, bold = true).margins(this, top = 16))
-        root.addView(text("상세 화면에서 [콜 확인]을 누르면 픽업(내 위치 → 출발지) + 운행(출발지 → 도착지)을 카카오 길찾기(차량)로 계산해요. 누를 때만 출발지·도착지 이름과 내 위치를 카카오에 보내요.", 15f, C.DIM))
-        root.addView(text("카카오 REST 키 " + if (store.kakaoKey.isBlank()) "❌ 없음" else if (store.kakaoKeyFromApp) "✅ 앱에 넣은 키" else "✅ 빌드에 들어간 키", 16f).margins(this, top = 6))
-        root.addView(editText("키를 직접 넣기 (비우면 빌드에 들어간 키)", if (store.kakaoKeyFromApp) store.kakaoKey else "").apply {
-            addTextChangedListener(afterChange { store.kakaoKey = it })
+        // 콜 확인 (TMAP 길찾기)
+        root.addView(text("콜 확인 (픽업 도로 거리)", 18f, bold = true).margins(this, top = 16))
+        root.addView(text("상세 화면에서 [콜 확인]을 누르면 내 위치 → 출발지 도로 거리와 시간을 TMAP(실시간 교통)으로 계산해요. 누를 때만 출발지 이름과 내 위치를 TMAP에 보내요.", 15f, C.DIM))
+        val keyState = text("", 16f).margins(this, top = 6) as android.widget.TextView
+        fun showKeyState() { keyState.text = "TMAP 앱 키 " + if (store.tmapKey.isBlank()) "❌ 없음" else "✅ 들어 있음" }
+        showKeyState()
+        root.addView(keyState)
+        root.addView(editText("TMAP 앱 키 붙여 넣기 (SK오픈API → 앱 → 앱키)", store.tmapKey).apply {
+            addTextChangedListener(afterChange { store.tmapKey = it; showKeyState() })
         })
 
         // 버튼 위치

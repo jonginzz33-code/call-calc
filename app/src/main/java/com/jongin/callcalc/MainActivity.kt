@@ -167,7 +167,7 @@ class MainActivity : AppCompatActivity() {
         scrollPage(root)
 
         val header = hbox()
-        header.addView(text("콜 계산기", 28f, bold = true), lp(0, weight = 1f))
+        header.addView(text("계산기", 28f, bold = true), lp(0, weight = 1f))
         // 버전 글씨를 누르면 업데이트 확인
         header.addView(text("v" + versionName() + "  ⟳ 업데이트", 15f, C.ACCENT).apply {
             setPadding(dp(8), dp(8), 0, dp(8))

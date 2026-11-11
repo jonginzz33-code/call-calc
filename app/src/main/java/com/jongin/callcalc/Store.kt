@@ -200,13 +200,11 @@ class Store(context: Context) {
         get() = p.getInt("statsEndHour", 6)
         set(v) = p.edit().putInt("statsEndHour", v.coerceIn(0, 23)).apply()
 
-    // ───── 콜 확인 (카카오 길찾기) ─────
-    /** 앱 안에서 넣은 카카오 REST 키. 비어 있으면 빌드할 때 넣은 키 */
-    var kakaoKey: String
-        get() = p.getString("kakaoKey", "")!!.trim().ifEmpty { BuildConfig.KAKAO_REST_KEY }
-        set(v) = p.edit().putString("kakaoKey", v.trim()).apply()
-
-    val kakaoKeyFromApp: Boolean get() = p.getString("kakaoKey", "")!!.isNotBlank()
+    // ───── 콜 확인 (TMAP 길찾기) ─────
+    /** SK오픈API 에서 받은 TMAP 앱 키 (폰 안에만 저장) */
+    var tmapKey: String
+        get() = p.getString("tmapKey", "")!!.trim()
+        set(v) = p.edit().putString("tmapKey", v.trim()).apply()
 
     /** 콜 앱 위에 [콜 ON] / [콜 확인] 버튼 띄우기 (설정 맨 위 체크칸) */
     var showCallOn: Boolean

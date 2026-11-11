@@ -1,4 +1,6 @@
-# 콜 계산기 작업 규칙
+# 계산기 작업 규칙
+
+- **"만들어줘"라고 하기 전에는 코드를 고치거나 빌드·배포하지 않는다.** 그 전엔 질문에 답만 한다 (사용자 요청).
 
 - 사용자는 비개발자, 한국어로 소통. README와 안내는 한국어로, 단계는 빠짐없이.
 - 전체 요구 사항: 설명서 https://claude.ai/artifact/GDVqw5gHJra4RDAcQ3sNMS (v0.1 → v0.2 실시간 읽기 → v0.3 오버레이)
@@ -10,3 +12,5 @@
 - 자동 터치·자동 수락·캡처 차단 우회는 넣지 않음.
 - 실시간 구조: `CallReaderService`(접근성)가 읽기+표시(`Overlay`, TYPE_ACCESSIBILITY_OVERLAY)를 모두 맡음 → '다른 앱 위에 표시' 권한 불필요. 접근성으로 못 읽으면 `CaptureService`(MediaProjection)+OCR.
 - 아직 안 한 것: 고정 위치 방식(설명서 4-4 보조).
+- [콜 확인]은 TMAP(SK오픈API) 장소검색 + 자동차 경로안내 (`PickupRoute.kt`, 키는 앱 설정에만 저장). 카카오 API는 쓰지 않음.
+- 앱 이름은 "계산기". 패키지 이름(com.jongin.callcalc)·저장소 이름(call-calc)·APK 이름(call-calc.apk)은 자동 업데이트와 접근성 설정이 끊기지 않게 그대로 둠.

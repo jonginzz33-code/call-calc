@@ -84,7 +84,7 @@ class CaptureService : Service() {
         )
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_view)
-            .setContentTitle("콜 계산기: 화면 읽는 중")
+            .setContentTitle("계산기: 화면 읽는 중")
             .setContentText("콜 앱 화면을 읽어 계산값을 보여 줘요. 밖으로 보내지 않아요.")
             .addAction(Notification.Action.Builder(null, "중지", stop).build())
             .setOngoing(true)

@@ -27,21 +27,21 @@ object PermissionGuide {
     )
 
     private val accessibility = Perm(
-        title = "접근성 (콜 계산기)",
+        title = "접근성 (계산기)",
         why = "콜 앱 화면의 글자를 읽고, 콜 옆에 계산값을 띄워요.",
         steps = listOf(
-            "아래 [켜러 가기]를 누르면 콜 계산기 스위치 화면이 바로 열려요",
+            "아래 [켜러 가기]를 누르면 계산기 스위치 화면이 바로 열려요",
             "스위치를 켜고 [허용]을 눌러요",
             "켜지면 자동으로 이 앱으로 돌아와요",
         ),
-        hint = "콜 계산기 스위치를 켜고 [허용]을 눌러 주세요\n(목록이 나오면 '설치된 앱' → 콜 계산기)",
+        hint = "계산기 스위치를 켜고 [허용]을 눌러 주세요\n(목록이 나오면 '설치된 앱' → 계산기)",
         note = "스위치가 회색으로 잠겨 안 켜지면: [앱 정보 열기] → 오른쪽 위 ⋮ → '제한된 설정 허용' → 다시 [켜러 가기]",
         extra = "앱 정보 열기" to { a ->
             a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
         },
         granted = { isAccessibilityOn(it) },
         open = { a ->
-            // 안드로이드 13+: 콜 계산기 스위치 화면으로 바로. 안 되면 접근성 첫 화면
+            // 안드로이드 13+: 계산기 스위치 화면으로 바로. 안 되면 접근성 첫 화면
             val direct = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
                 .putExtra(Intent.EXTRA_COMPONENT_NAME, android.content.ComponentName(a, CallReaderService::class.java).flattenToString())
             if (android.os.Build.VERSION.SDK_INT < 33 || runCatching { a.startActivity(direct) }.isFailure) {
@@ -82,7 +82,7 @@ object PermissionGuide {
         extra = "앱 정보 열기" to { a ->
             a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
         },
-        granted = { KakaoRoute.hasLocationPermission(it) },
+        granted = { PickupRoute.hasLocationPermission(it) },
         open = { a ->
             a.requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), 71)
         },
@@ -94,7 +94,7 @@ object PermissionGuide {
     private var watch: Runnable? = null
 
     /**
-     * 설정 화면 열기 + 아래쪽 안내 문구 + 켜지면 자동으로 콜 계산기로 돌아오기.
+     * 설정 화면 열기 + 아래쪽 안내 문구 + 켜지면 자동으로 계산기로 돌아오기.
      * (켜졌는지 0.5초마다 확인, 3분까지)
      */
     fun go(a: Activity, p: Perm) {

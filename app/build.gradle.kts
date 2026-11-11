@@ -22,8 +22,6 @@ android {
         targetSdk = 36
         versionCode = buildNumber
         versionName = readmeVersion
-        // 콜 확인(카카오 길찾기)용 키: GitHub 비밀값 KAKAO_REST_KEY. 없으면 앱 설정에서 넣을 수 있음
-        buildConfigField("String", "KAKAO_REST_KEY", "\"${System.getenv("KAKAO_REST_KEY")?.trim() ?: ""}\"")
     }
 
     buildFeatures { buildConfig = true }
