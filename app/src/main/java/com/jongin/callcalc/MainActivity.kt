@@ -91,11 +91,15 @@ class MainActivity : AppCompatActivity() {
         store = Store(this)
         buildUi()
         handleShare(intent)
+        // 새 버전 확인은 권한 안내와 상관없이 앱을 켜자마자 (한 번만)
+        checkUpdateOnce()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleShare(intent)
+        // 새 버전 확인은 권한 안내와 상관없이 앱을 켜자마자 (한 번만)
+        checkUpdateOnce()
     }
 
     override fun onResume() {
@@ -104,6 +108,7 @@ class MainActivity : AppCompatActivity() {
         showFormula()
         if (hasResult) render()
         renderLive()
+        Updater.resumePending(this)
         checkPermissions()
     }
 
@@ -152,7 +157,11 @@ class MainActivity : AppCompatActivity() {
 
         val header = hbox()
         header.addView(text("콜 계산기", 28f, bold = true), lp(0, weight = 1f))
-        header.addView(text("v" + versionName(), 15f, C.DIM))
+        // 버전 글씨를 누르면 업데이트 확인
+        header.addView(text("v" + versionName() + "  ⟳ 업데이트", 15f, C.ACCENT).apply {
+            setPadding(dp(8), dp(8), 0, dp(8))
+            setOnClickListener { Updater.check(this@MainActivity, quiet = false) }
+        })
         root.addView(header)
 
         liveBox = vbox().apply {

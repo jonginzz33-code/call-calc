@@ -58,24 +58,61 @@ object Updater {
         null
     }
 
+    /** '이 출처 허용' 켜러 갔다 돌아오면 이어서 설치할 업데이트 */
+    private var pending: Info? = null
+
+    fun versionText(a: Activity): String {
+        val name = runCatching { a.packageManager.getPackageInfo(a.packageName, 0).versionName }.getOrNull() ?: "?"
+        return "v$name (build ${currentVersionCode(a)})"
+    }
+
+    /** 앱으로 돌아왔을 때: 허용을 켜고 왔으면 바로 이어서 설치 */
+    fun resumePending(a: Activity) {
+        val info = pending ?: return
+        if (Build.VERSION.SDK_INT >= 26 && !a.packageManager.canRequestPackageInstalls()) return
+        pending = null
+        install(a, info)
+    }
+
+    /** 브라우저로 최신 APK 받기 (앱 안 설치가 안 될 때) */
+    fun openInBrowser(a: Activity) {
+        runCatching { a.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(FIXED_APK))) }
+    }
+
     /**
      * 새 버전이 있으면 물어보고 설치한다.
      * quiet = true 면 (앱 켤 때 자동 확인) 새 버전이 없거나 실패해도 아무 말 안 함.
+     * quiet = false 면 (버튼으로 확인) 결과를 창으로 보여 준다.
      */
     fun check(a: Activity, quiet: Boolean) {
-        if (!quiet) Toast.makeText(a, "새 버전 확인 중…", Toast.LENGTH_SHORT).show()
+        val progress = if (quiet) null else MaterialAlertDialogBuilder(a)
+            .setTitle("업데이트 확인")
+            .setMessage("새 버전을 확인하는 중…")
+            .show()
         Thread {
             val info = latest()
             main.post {
+                progress?.dismiss()
                 if (a.isFinishing || a.isDestroyed) return@post
                 val cur = currentVersionCode(a)
+                val now = versionText(a)
                 when {
-                    info == null -> if (!quiet) Toast.makeText(a, "새 버전을 확인하지 못했어요. 인터넷 연결을 확인해 주세요.", Toast.LENGTH_LONG).show()
-                    info.versionCode <= cur -> if (!quiet) Toast.makeText(a, "지금이 최신 버전이에요.", Toast.LENGTH_SHORT).show()
+                    info == null -> if (!quiet) MaterialAlertDialogBuilder(a)
+                        .setTitle("확인하지 못했어요")
+                        .setMessage("지금 버전: $now\n\n인터넷 연결을 확인해 주세요. 안 되면 브라우저로 최신 버전을 받을 수 있어요.")
+                        .setPositiveButton("브라우저로 받기") { _, _ -> openInBrowser(a) }
+                        .setNegativeButton("닫기", null)
+                        .show()
+                    info.versionCode <= cur -> if (!quiet) MaterialAlertDialogBuilder(a)
+                        .setTitle("최신 버전이에요 ✅")
+                        .setMessage("지금 버전: $now\n최신 버전: ${info.name}")
+                        .setPositiveButton("확인", null)
+                        .show()
                     else -> MaterialAlertDialogBuilder(a)
                         .setTitle("새 버전이 있어요")
-                        .setMessage("${info.name}\n지금 업데이트할까요? 설정은 그대로 남아요.")
+                        .setMessage("지금 버전: $now\n새 버전: ${info.name}\n\n지금 업데이트할까요? 설정은 그대로 남아요.")
                         .setPositiveButton("업데이트") { _, _ -> install(a, info) }
+                        .setNeutralButton("브라우저로 받기") { _, _ -> openInBrowser(a) }
                         .setNegativeButton("나중에", null)
                         .show()
                 }
@@ -85,7 +122,9 @@ object Updater {
 
     private fun install(a: Activity, info: Info) {
         if (Build.VERSION.SDK_INT >= 26 && !a.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(a, "'이 출처의 앱 허용'을 켜고 돌아와서 다시 업데이트를 눌러 주세요", Toast.LENGTH_LONG).show()
+            // 켜고 돌아오면 resumePending()이 이어서 설치
+            pending = info
+            Toast.makeText(a, "'이 출처 허용'을 켜고 뒤로 가기를 누르면 바로 이어서 받아요", Toast.LENGTH_LONG).show()
             a.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${a.packageName}")))
             return
         }
@@ -121,7 +160,12 @@ object Updater {
                 if (cancelFlag.get()) return@post
                 dialog.dismiss()
                 result.onFailure {
-                    Toast.makeText(a, "받지 못했어요: ${it.message ?: "인터넷 연결 확인"}", Toast.LENGTH_LONG).show()
+                    MaterialAlertDialogBuilder(a)
+                        .setTitle("받지 못했어요")
+                        .setMessage("${it.message ?: "인터넷 연결 확인"}\n\n브라우저로 받아서 설치할 수도 있어요.")
+                        .setPositiveButton("브라우저로 받기") { _, _ -> openInBrowser(a) }
+                        .setNegativeButton("닫기", null)
+                        .show()
                 }.onSuccess {
                     part.renameTo(file)
                     val uri = FileProvider.getUriForFile(a, "${a.packageName}.files", file)

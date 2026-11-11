@@ -34,6 +34,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Updater.resumePending(this)
         // 설정에서 권한을 켜고 돌아오면 상태를 다시 그림
         permBox.removeAllViews()
         permBox.addView(PermissionGuide.statusRows(this))
@@ -49,6 +50,20 @@ class SettingsActivity : AppCompatActivity() {
         header.addView(text("설정", 28f, bold = true), lp(0, weight = 1f))
         header.addView(button("완료", outlined = true) { finish() })
         root.addView(header)
+
+        // 업데이트 확인 (맨 위)
+        val upCard = vbox().apply {
+            background = roundBg(C.PANEL, C.BTN, 2, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = lp().also { it.topMargin = dp(12) }
+        }
+        upCard.addView(text("지금 버전: " + Updater.versionText(this), 17f, bold = true))
+        upCard.addView(button("⟳ 업데이트 확인", big = true) { Updater.check(this, quiet = false) }.margins(this, top = 8))
+        upCard.addView(text("브라우저로 받기", 15f, C.ACCENT).apply {
+            setPadding(0, dp(10), 0, 0)
+            setOnClickListener { Updater.openInBrowser(this@SettingsActivity) }
+        })
+        root.addView(upCard)
 
         // ── 계산식 ──
         root.addView(sectionTitle("계산식"))
@@ -174,7 +189,6 @@ class SettingsActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, on -> store.autoUpdate = on }
         })
         root.addView(upRow)
-        root.addView(button("지금 새 버전 확인", outlined = true) { Updater.check(this, quiet = false) }.margins(this, top = 8))
         root.addView(text("인터넷은 새 버전 확인과 받기에만 써요. 읽은 콜 내용은 밖으로 보내지 않아요.", 15f, C.DIM).margins(this, top = 6))
 
         root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 13f, C.GRAY).margins(this, top = 24))
