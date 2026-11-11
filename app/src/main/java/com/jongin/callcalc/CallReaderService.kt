@@ -309,7 +309,8 @@ class CallReaderService : AccessibilityService() {
     private fun show(rows: List<CallRow>, readMs: Long, note: String?) {
         val sig = signature(rows)
         val visible = overlayVisible && shownSig == sig
-        if (rows.isNotEmpty() && !visible) {
+        // 콜이 0개로 읽힌 것도 확정이 필요 (한 번 놓쳤다고 표시가 다 사라지지 않게)
+        if (!visible) {
             if (sig != candSig) {
                 candTries++
                 candSig = sig
