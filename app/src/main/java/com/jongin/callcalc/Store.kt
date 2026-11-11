@@ -181,6 +181,11 @@ class Store(context: Context) {
         get() = p.getBoolean("refreshAuto", false)
         set(v) = p.edit().putBoolean("refreshAuto", v).apply()
 
+    /** [앱 종료]를 누른 상태. 앱을 다시 열면 false */
+    var paused: Boolean
+        get() = p.getBoolean("paused", false)
+        set(v) = p.edit().putBoolean("paused", v).apply()
+
     var keepScreenOn: Boolean
         get() = p.getBoolean("keepScreenOn", true)
         set(v) = p.edit().putBoolean("keepScreenOn", v).apply()

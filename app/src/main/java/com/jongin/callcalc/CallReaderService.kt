@@ -112,6 +112,7 @@ class CallReaderService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
+        if (store.paused) return // [앱 종료] 상태: 아무것도 안 함
         val pkg = e.packageName?.toString() ?: return
         if (pkg == packageName) return
         val target = store.watches(pkg)
@@ -199,8 +200,21 @@ class CallReaderService : AccessibilityService() {
         handler.postAtTime(refreshTask, at)
     }
 
+    /** [앱 종료]: 표시와 버튼을 모두 내리고 멈춤 */
+    fun pause() {
+        handler.removeCallbacks(refreshTask)
+        hideLabels()
+        overlay.hideBubble()
+        memory.clear(); sticky.clear()
+        lastPkg = null
+    }
+
+    /** 앱을 다시 열면 이어서 */
+    fun resume() = schedule(100)
+
     private fun refresh() {
         dueAt = 0L
+        if (store.paused) { hideLabels(); overlay.hideBubble(); return }
         val root = runCatching { rootInActiveWindow }.getOrNull()
         val pkg = root?.packageName?.toString()
         // 콜 계산기 자기 화면 위에서는 표시하지 않음

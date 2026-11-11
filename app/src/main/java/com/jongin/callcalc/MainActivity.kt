@@ -110,6 +110,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // [앱 종료] 뒤에 다시 열면 이어서 동작
+        if (store.paused) {
+            store.paused = false
+            CallReaderService.instance?.resume()
+        }
         // 설정 화면에서 돌아오면 새 설정으로 다시 계산
         showFormula()
         if (hasResult) render()
@@ -175,6 +180,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }
         root.addView(liveBox.margins(this, top = 14))
+
+        // 앱 종료: 둥근 버튼·표시·화면 캡처·읽기를 모두 멈추고 닫기. 다시 열면 켜짐
+        root.addView(button("⏻ 앱 종료", outlined = true) { exitApp() }.apply {
+            setTextColor(C.BAD)
+            strokeColor = android.content.res.ColorStateList.valueOf(C.BAD)
+        }.margins(this, top = 10))
 
         root.addView(sectionTitle("스크린샷으로 시험하기"))
         val row1 = hbox()
@@ -299,6 +310,14 @@ class MainActivity : AppCompatActivity() {
             else "위의 ❌ 를 해결하면 콜 앱 위에 계산값이 떠요.",
             15f, C.DIM,
         ).margins(this, top = 10))
+    }
+
+    private fun exitApp() {
+        store.paused = true
+        CallReaderService.instance?.pause()
+        if (CaptureService.instance != null) CaptureService.stop(this)
+        android.widget.Toast.makeText(this, "앱을 종료했어요. 다시 열면 켜져요", android.widget.Toast.LENGTH_SHORT).show()
+        finishAndRemoveTask()
     }
 
     /** 숨긴 권한 안내도 다시 띄우기 */
