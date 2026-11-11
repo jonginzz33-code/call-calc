@@ -295,7 +295,7 @@ class MainActivity : AppCompatActivity() {
 
         val ready = accOn && (apps.isNotEmpty() || store.alwaysOn)
         liveBox.addView(text(
-            if (ready) (if (store.alwaysOn) "다른 앱을 열면" else "콜 앱을 열면") + " 화면 옆에 둥근 [콜 ON] 버튼이 생겨요.\n· 한 번 톡: 표시 켜기/끄기 · 끌기: 옮기기\n· 두 번 톡(또는 길게): 메뉴 → 읽을 영역 정하기, 기억 지우기\n· 화면 어디든 만지면 바로 새로고침"
+            if (ready) (if (store.alwaysOn) "다른 앱을 열면" else "콜 앱을 열면") + " 화면 옆에 둥근 [콜 ON] 버튼이 생겨요.\n· 한 번 톡: 표시 켜기/끄기 · 끌기: 옮기기\n· 두 번 톡(또는 길게): 메뉴 → 읽을 영역 정하기, 기억 지우기\n· 화면 어디든 만지면 바로 새로고침" + (if (store.refreshAuto) " (자동 새로고침도 켜짐)" else " (터치할 때만)") + ""
             else "위의 ❌ 를 해결하면 콜 앱 위에 계산값이 떠요.",
             15f, C.DIM,
         ).margins(this, top = 10))

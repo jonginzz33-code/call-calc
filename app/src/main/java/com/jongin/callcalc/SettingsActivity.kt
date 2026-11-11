@@ -148,6 +148,12 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(alwaysRow)
         root.addView(text("켜면 감시할 앱과 상관없이 어느 화면에서나 읽어요. 갤러리에서 스크린샷으로 시험할 때 써요.", 15f, C.DIM))
 
+        root.addView(text("새로고침 방식", 18f, bold = true).margins(this, top = 14))
+        root.addView(radios(listOf("터치할 때만 (화면을 만지면 다시 읽기)", "자동 + 터치 (화면이 바뀌면 저절로도 읽기)"), if (store.refreshAuto) 1 else 0) {
+            store.refreshAuto = it == 1; live()
+        })
+        root.addView(text("터치할 때만: 손대지 않으면 표시가 멈춰 있어 깜빡이지 않아요. 새 콜이 올라오면 화면을 톡 한 번 쳐 주세요.", 15f, C.DIM))
+
         root.addView(text("읽는 방식", 18f, bold = true).margins(this, top = 14))
         root.addView(radios(listOf("자동 (접근성 먼저, 안 되면 화면 캡처)", "접근성만", "화면 캡처(OCR)만"), store.readMode) {
             store.readMode = it; live()

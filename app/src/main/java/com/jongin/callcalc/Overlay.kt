@@ -99,7 +99,7 @@ class Overlay(
      * banner 는 화면 위쪽 작은 요약 (계산식, 최고, 속도, 안내).
      * 있던 표시는 지우지 않고 글자·색·위치만 바꿔서 깜빡이지 않게 한다.
      */
-    fun showLabels(rows: List<EvaluatedRow>, banner: String?) {
+    fun showLabels(rows: List<EvaluatedRow>, banner: String?, bounds: Rect? = null) {
         val r = ensureRoot()
         shownRects.clear()
         r.visibility = View.VISIBLE
@@ -107,6 +107,9 @@ class Overlay(
         r.getLocationOnScreen(loc)
         val textSp = store.overlayTextSp.toFloat()
         val gap = dp(6)
+        // 표시는 읽은 영역(네모) 안, 없으면 화면 안에서만 (화면 밖으로 나가지 않게)
+        val screen = screenRect()
+        val area = bounds?.let { Rect(it).apply { if (!intersect(screen)) set(screen) } } ?: screen
 
         while (labelViews.size < rows.size) {
             val v = TextView(svc)
@@ -132,7 +135,9 @@ class Overlay(
             // 빈자리 오른쪽에 붙이되, 자리가 좁으면 왼쪽 끝에서 시작
             var x = row.slotRight - w - gap
             if (x < row.slotLeft + gap) x = row.slotLeft + gap
-            val y = row.slotY - h / 2
+            var y = row.slotY - h / 2
+            x = x.coerceIn(area.left + gap, maxOf(area.left + gap, area.right - w - gap))
+            y = y.coerceIn(area.top, maxOf(area.top, area.bottom - h))
             v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply {
                 width = w; height = h
                 leftMargin = x - loc[0]
@@ -527,6 +532,10 @@ class Overlay(
         labelViews.clear()
         bannerView = null
     }
+
+    /** 화면 전체 (화면 좌표) */
+    private fun screenRect(): Rect = if (Build.VERSION.SDK_INT >= 30) Rect(wm.currentWindowMetrics.bounds)
+    else svc.resources.displayMetrics.let { Rect(0, 0, it.widthPixels, it.heightPixels) }
 
     private fun statusBarHeight(): Int {
         val id = svc.resources.getIdentifier("status_bar_height", "dimen", "android")

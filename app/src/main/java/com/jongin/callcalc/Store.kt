@@ -176,6 +176,11 @@ class Store(context: Context) {
     fun regionCount(): Int = p.all.keys.count { it.startsWith("region_") }
 
     /** 감시하는 앱이 화면에 있는 동안 화면이 저절로 꺼지지 않게 */
+    /** 새로고침 방식: false 터치할 때만 (기본) / true 자동 + 터치 */
+    var refreshAuto: Boolean
+        get() = p.getBoolean("refreshAuto", false)
+        set(v) = p.edit().putBoolean("refreshAuto", v).apply()
+
     var keepScreenOn: Boolean
         get() = p.getBoolean("keepScreenOn", true)
         set(v) = p.edit().putBoolean("keepScreenOn", v).apply()

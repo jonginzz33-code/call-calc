@@ -128,7 +128,8 @@ class CallReaderService : AccessibilityService() {
                 hideLabels()
                 schedule(SCROLL_SETTLE, postpone = true)
             }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> if (target) {
+            // 터치할 때만 모드에선 화면이 바뀌어도 저절로 다시 읽지 않음
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> if (target && store.refreshAuto) {
                 val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
                 // 화면이 계속 바뀌어도 이미 잡힌 읽기를 뒤로 미루지 않는다 (예전엔 계속 밀려서 늦게 떴음)
                 schedule(if (sinceScroll < SCROLL_SETTLE) SCROLL_SETTLE else 60)
@@ -172,6 +173,11 @@ class CallReaderService : AccessibilityService() {
         handler.postDelayed(touchFollowUp, TOUCH_FOLLOW_UP)
     }
 
+    /** 정기 확인: 자동 모드에서만 */
+    private fun idle(ms: Long) {
+        if (store.refreshAuto) schedule(ms)
+    }
+
     private fun hideLabels() {
         overlay.hideLabels()
         overlayVisible = false
@@ -207,7 +213,7 @@ class CallReaderService : AccessibilityService() {
         curPkg = pkg
         if (overlay.editing) return // 영역 정하는 중엔 읽지 않음
         overlay.showBubble()
-        if (!store.overlayOn) { hideLabels(); schedule(HEARTBEAT); return }
+        if (!store.overlayOn) { hideLabels(); idle(HEARTBEAT); return }
         val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
         if (sinceScroll < SCROLL_SETTLE) { schedule(SCROLL_SETTLE - sinceScroll + 10, postpone = true); return }
 
@@ -222,7 +228,7 @@ class CallReaderService : AccessibilityService() {
             val ms = (SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000
             if (rows.isNotEmpty() || mode == 1) {
                 show(rows, ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (접근성)" else null)
-                schedule(HEARTBEAT)
+                idle(HEARTBEAT)
                 return
             }
         }
@@ -237,7 +243,7 @@ class CallReaderService : AccessibilityService() {
                 "⚠ 화면 캡처가 꺼졌어요 (화면이 꺼지면 안드로이드가 자동으로 꺼요) · 콜 계산기 앱에서 [화면 캡처 시작]을 다시 눌러 주세요"
             else "글자를 못 읽었어요 · 콜 계산기 앱에서 [화면 캡처 시작]을 눌러 주세요"
             show(emptyList(), -1, note)
-            schedule(HEARTBEAT)
+            idle(HEARTBEAT)
             return
         }
         if (ocrBusy) { ocrAgain = true; return }
@@ -264,14 +270,14 @@ class CallReaderService : AccessibilityService() {
                     }
                 }
                 res is CaptureService.Result.Unchanged -> if (!confirmPending()) lastShown?.let { (out, banner) ->
-                    if (store.overlayOn && !overlayVisible) { overlay.showLabels(out.rows, banner); overlayVisible = true }
+                    if (store.overlayOn && !overlayVisible) { overlay.showLabels(out.rows, banner, labelBounds()); overlayVisible = true }
                 }
                 res is CaptureService.Result.Black ->
                     show(emptyList(), -1, "화면 캡처가 막혀 있어요 (콜 앱이 캡처를 막음). 접근성 방식만 쓸 수 있어요")
                 res is CaptureService.Result.Error -> show(emptyList(), -1, res.msg)
             }
             // 화면 캡처는 이벤트가 안 오는 변화(사진 넘기기 등)도 있어서 더 자주 확인 (같은 화면이면 OCR 안 함)
-            if (ocrAgain) { ocrAgain = false; schedule(30) } else schedule(OCR_POLL)
+            if (ocrAgain) { ocrAgain = false; schedule(30) } else idle(OCR_POLL)
         }
     }
 
@@ -351,8 +357,11 @@ class CallReaderService : AccessibilityService() {
         if (key == lastKey && !wasHidden) return
         lastKey = key
         overlayVisible = true
-        overlay.showLabels(out.rows, banner)
+        overlay.showLabels(out.rows, banner, labelBounds())
     }
+
+    /** 표시가 나올 수 있는 범위: 읽은 영역(네모) 안, 없으면 화면 안 */
+    private fun labelBounds(): Rect? = curPkg?.let { store.region(it) }
 
     /**
      * 접근성 트리에서 글자와 위치를 모은다.
