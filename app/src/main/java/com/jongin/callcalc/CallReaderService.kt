@@ -64,17 +64,18 @@ class CallReaderService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 // 다른 화면으로 넘어가면 (목록 새로고침, 상세 화면 등) 기억을 지운다
                 if (target) memory.clear()
-                schedule(150)
+                schedule(60)
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> if (target) {
                 // 스크롤하는 동안은 숨기고, 멈추면 다시 읽는다
                 lastScrollAt = SystemClock.uptimeMillis()
                 hideLabels()
-                schedule(350)
+                schedule(SCROLL_SETTLE, postpone = true)
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> if (target) {
                 val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
-                schedule(if (sinceScroll < 350) 350 else 150)
+                // 화면이 계속 바뀌어도 이미 잡힌 읽기를 뒤로 미루지 않는다 (예전엔 계속 밀려서 늦게 떴음)
+                schedule(if (sinceScroll < SCROLL_SETTLE) SCROLL_SETTLE else 60)
             }
         }
     }
@@ -112,12 +113,22 @@ class CallReaderService : AccessibilityService() {
         overlayVisible = false
     }
 
-    private fun schedule(delayMs: Long) {
+    private var dueAt = 0L
+
+    /**
+     * delayMs 뒤에 읽기. 이미 더 이른 읽기가 잡혀 있으면 그대로 둔다.
+     * postpone = true (스크롤 중) 일 때만 뒤로 미룬다.
+     */
+    private fun schedule(delayMs: Long, postpone: Boolean = false) {
+        val at = SystemClock.uptimeMillis() + delayMs
+        if (!postpone && dueAt > SystemClock.uptimeMillis() && dueAt <= at) return
         handler.removeCallbacks(refreshTask)
-        handler.postDelayed(refreshTask, delayMs)
+        dueAt = at
+        handler.postAtTime(refreshTask, at)
     }
 
     private fun refresh() {
+        dueAt = 0L
         val root = runCatching { rootInActiveWindow }.getOrNull()
         val pkg = root?.packageName?.toString()
         // 콜 계산기 자기 화면 위에서는 표시하지 않음
@@ -129,7 +140,8 @@ class CallReaderService : AccessibilityService() {
         if (lastPkg != pkg) { memory.clear(); lastPkg = pkg }
         overlay.showBubble()
         if (!store.overlayOn) { hideLabels(); schedule(HEARTBEAT); return }
-        if (SystemClock.uptimeMillis() - lastScrollAt < 300) { schedule(300); return }
+        val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
+        if (sinceScroll < SCROLL_SETTLE) { schedule(SCROLL_SETTLE - sinceScroll + 10, postpone = true); return }
 
         val mode = store.readMode
         if (mode != 2) {
@@ -161,7 +173,7 @@ class CallReaderService : AccessibilityService() {
             ocrBusy = false
             val scrolledMeanwhile = lastScrollAt > startedAt
             when {
-                scrolledMeanwhile -> schedule(350)
+                scrolledMeanwhile -> schedule(SCROLL_SETTLE, postpone = true)
                 res is CaptureService.Result.Items -> {
                     val rows = LiveRules.dropEdgeFailures(CallParser.parse(res.items))
                     show(rows, res.ms, if (rows.isEmpty()) "콜을 찾지 못했어요 (화면 캡처)" else null)
@@ -173,7 +185,8 @@ class CallReaderService : AccessibilityService() {
                     show(emptyList(), -1, "화면 캡처가 막혀 있어요 (콜 앱이 캡처를 막음). 접근성 방식만 쓸 수 있어요")
                 res is CaptureService.Result.Error -> show(emptyList(), -1, res.msg)
             }
-            if (ocrAgain) { ocrAgain = false; schedule(50) } else schedule(HEARTBEAT)
+            // 화면 캡처는 이벤트가 안 오는 변화(사진 넘기기 등)도 있어서 더 자주 확인 (같은 화면이면 OCR 안 함)
+            if (ocrAgain) { ocrAgain = false; schedule(30) } else schedule(OCR_POLL)
         }
     }
 
@@ -239,7 +252,9 @@ class CallReaderService : AccessibilityService() {
     }
 
     companion object {
-        private const val HEARTBEAT = 1500L
+        private const val HEARTBEAT = 1000L      // 변화가 없어도 다시 확인하는 간격
+        private const val OCR_POLL = 500L        // 화면 캡처 방식 확인 간격
+        private const val SCROLL_SETTLE = 250L   // 스크롤이 멈췄다고 보는 시간
         @Volatile var instance: CallReaderService? = null
     }
 }
