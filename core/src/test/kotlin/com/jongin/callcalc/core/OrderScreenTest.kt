@@ -155,4 +155,24 @@ class OrderScreenTest {
         assertEquals("서대문구 홍은동 홍은동벽산아파트", DetailParser.searchQueries("서대문구 홍은동 +홍은동벽산아파트").first())
         assertEquals("석수동 석수두산위브", DetailParser.searchQueries("석수동 석수두산위브 106동").first())
     }
+
+    // ── 엉뚱한 동네 결과 걸러 내기 ──
+    @Test fun picksResultInTheSameDong() {
+        // 청담동 용강빌딩: 1등이 다른 동네(여리수)면 버리고 청담동 결과
+        assertEquals(1, DetailParser.pickPlace("청담동 용강빌딩", listOf("가평군" to "청평면", "강남구" to "청담동")))
+        // 하나도 안 맞으면 못 찾음
+        assertNull(DetailParser.pickPlace("양평동4가 영등포세무서", listOf("양평군" to "양평읍", "수원시 권선구" to "탑동")))
+        // 양평동4가 ↔ 양평동4가, 성수동1가
+        assertEquals(0, DetailParser.pickPlace("양평동4가 영등포세무서", listOf("영등포구" to "양평동4가")))
+        // 같은 이름 빌라가 여러 동네에: 원당동 것을 고름
+        assertEquals(2, DetailParser.pickPlace("검단구 원당동 혜정빌", listOf("부천시" to "원미동", "남양주시" to "평내동", "서구" to "원당동")))
+        // 화곡1동(행정동) ↔ 화곡동(법정동)
+        assertEquals(0, DetailParser.pickPlace("강서구 화곡1동 우장산역", listOf("강서구" to "화곡동")))
+        // 동은 달라도 구가 맞으면 받아 줌
+        assertEquals(0, DetailParser.pickPlace("시흥시 목감동 퍼스트리움", listOf("시흥시" to "조남동")))
+        // 지역 이름이 없는 검색어는 1등
+        assertEquals(0, DetailParser.pickPlace("메가박스", listOf("성동구" to "성수동1가")))
+        // 짧은 동 이름(신동)으로 신정동을 잘못 고르지 않음
+        assertNull(DetailParser.pickPlace("신동 어린이집", listOf("양천구" to "신정동")))
+    }
 }

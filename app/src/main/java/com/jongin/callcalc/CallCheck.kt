@@ -99,7 +99,7 @@ object CallCheck {
             cur = cur.copy(originName = o?.name ?: detail.origin, destName = d?.name ?: detail.destination, originPt = o, destPt = d)
 
             // ① 결과 먼저 보여 주기
-            val pickup = when {
+            var pickup = when {
                 my == null -> estimatePickup(detail, null, minPerKm,
                     if (!hasLocationPermission()) "위치 권한이 없어서 추정" else "내 위치를 못 잡아서 추정")
                 o == null -> estimatePickup(detail, null, minPerKm, oErr ?: "출발지를 지도에서 못 찾아서 추정")
@@ -108,6 +108,12 @@ object CallCheck {
                     if (r != null) Leg(r.first / 1000.0, Math.round(r.second / 60.0).toInt(), false)
                     else estimatePickup(detail, distanceKm(my, o), minPerKm, err ?: "픽업 길찾기 실패로 추정")
                 }
+            }
+            // 출발 위치 확인: 콜 앱이 알려 준 거리(직선)보다 터무니없이 멀면 엉뚱한 곳 → 추정으로
+            val appKm = detail.pickupKm
+            if (!pickup.estimated && appKm != null && pickup.km != null && pickup.km > maxOf(appKm * 3, appKm + 15)) {
+                pickup = estimatePickup(detail, null, minPerKm,
+                    "⚠ 출발 위치 확인 (내비 ${String.format(java.util.Locale.US, "%.1f", pickup.km)}km / 콜 앱 ${appKm}km) · 추정")
             }
             post(cur.copy(pickup = pickup, ride = quickRide, prelim = quickRide != null))
 
@@ -120,7 +126,13 @@ object CallCheck {
                     else estimateRide(detail, err ?: "운행 길찾기 실패로 콜 앱 안내 시간")
                 }
             }
-            post(cur.copy(pickup = pickup, ride = withVia(detail, ride), done = true, prelim = false))
+            // 도착 위치 확인: 내비 운행 시간이 콜 앱 안내와 크게 다르면 엉뚱한 곳 → 콜 앱 시간 사용, 톨비 빼지 않음
+            val appRide = detail.rideMin?.toInt()
+            val checked = if (!detail.hasVia && !ride.estimated && appRide != null && ride.min != null &&
+                kotlin.math.abs(ride.min - appRide) >= maxOf(20, appRide * 6 / 10)
+            ) Leg(ride.km, appRide, true, "⚠ 도착 위치 확인 (내비 ${ride.min}분 / 콜 앱 ${appRide}분) · 콜 앱 시간 사용")
+            else ride
+            post(cur.copy(pickup = pickup, ride = withVia(detail, checked), done = true, prelim = false))
         }
     }
 
@@ -198,10 +210,14 @@ object CallCheck {
 
     private fun searchOne(q: String, key: String, near: Point?): Point? {
         val c = near?.let { "&centerLon=${it.x}&centerLat=${it.y}" } ?: ""
-        val url = "$API/pois?version=1&count=1&searchKeyword=${URLEncoder.encode(q, "UTF-8")}$c" +
+        // 결과를 5개 받아서 (사용량은 똑같이 1건) 화면 주소의 동·구와 맞는 걸 고름
+        val url = "$API/pois?version=1&count=5&searchKeyword=${URLEncoder.encode(q, "UTF-8")}$c" +
             "&reqCoordType=WGS84GEO&resCoordType=WGS84GEO"
         val j = request(url, key, null) ?: return null
-        val poi = j.optJSONObject("searchPoiInfo")?.optJSONObject("pois")?.optJSONArray("poi")?.optJSONObject(0) ?: return null
+        val arr = j.optJSONObject("searchPoiInfo")?.optJSONObject("pois")?.optJSONArray("poi") ?: return null
+        val pois = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+        val pick = DetailParser.pickPlace(q, pois.map { it.optString("middleAddrName") to it.optString("lowerAddrName") }) ?: return null
+        val poi = pois[pick]
         val lat = poi.optString("frontLat").ifEmpty { poi.optString("noorLat") }.toDoubleOrNull() ?: return null
         val lon = poi.optString("frontLon").ifEmpty { poi.optString("noorLon") }.toDoubleOrNull() ?: return null
         return Point(lon, lat, poi.optString("name").ifEmpty { q })

@@ -293,6 +293,42 @@ object DetailParser {
         return top + noStem.filter { it !in top }
     }
 
+    /** 동 이름 다듬기: 양평동4가 → 양평동, 화곡1동 → 화곡동 (지도 결과 주소와 비교용) */
+    fun normDong(w: String): String = w.replace(Regex("""\d+가$"""), "").replace(Regex("""\d+(?=동$)"""), "")
+
+    /**
+     * 검색어 안의 지역 이름 (지도 결과가 맞는 동네인지 확인용).
+     * first = 동·읍·면·리, second = 시·군·구 (특별시·광역시는 빼고)
+     */
+    fun regionHints(query: String): Pair<List<String>, List<String>> {
+        val r = query.split(" ").filter { regionWord.matches(it) }
+        val dong = r.filter { Regex("(동|읍|면|리|가)$").containsMatchIn(it) }.map { normDong(it) }
+        val gu = r.filter { Regex("(시|군|구)$").containsMatchIn(it) && !topLevel.containsMatchIn(it) }
+        return dong to gu
+    }
+
+    /**
+     * 지도 결과 고르기: 결과 주소(시·구, 동)가 검색어의 동 이름과 맞으면 2점, 시·구만 맞으면 1점.
+     * 검색어에 지역 이름이 있는데 하나도 안 맞으면 null (엉뚱한 동네의 같은 이름 장소 걸러 내기)
+     */
+    fun pickPlace(query: String, results: List<Pair<String, String>>): Int? {
+        if (results.isEmpty()) return null
+        val (dong, gu) = regionHints(query)
+        if (dong.isEmpty() && gu.isEmpty()) return 0
+        var best = -1; var bestScore = 0
+        results.forEachIndexed { i, (middle, lower) ->
+            val low = normDong(lower.trim())
+            val score = when {
+                dong.any { d -> low == d } -> 2
+                gu.any { g -> middle.contains(g) || g.contains(middle.trim()) && middle.isNotBlank() } -> 1
+                else -> 0
+            }
+            if (score > bestScore) { bestScore = score; best = i }
+        }
+        // 시·구만 맞은 것도 받아 줌 (행정동·법정동 이름이 다를 수 있어서). 하나도 안 맞으면 null
+        return if (best >= 0) best else null
+    }
+
     fun searchQueries(place: String): List<String> {
         val words = tidy(place)
         if (words.isEmpty()) return emptyList()
