@@ -71,7 +71,7 @@ class SettingsActivity : AppCompatActivity() {
             row.addView(text("$value  ›", 15f, if (warn) C.WARN else C.SUB))
             list.addView(row)
         }
-        val close = { renderList(); live() }
+        val close: () -> Unit = { renderList(); live() }
         item("🚗", "톨비 계산", CallCheck.carName(store.tollCar)) { sheet("🚗 톨비 계산", close) { carSheet(it) } }
         item("🧮", "계산식 · 픽업", "${MainActivity.pretty(store.selectedFormula.expr)} · ${Store.plain(store.pickupMinPerKm)}분") { sheet("🧮 계산식 · 픽업", close) { formulaSheet(it) } }
         item("💰", "기준 단가 · 최소 금액", listOfNotNull(store.threshold?.let { formatNumber(it) + "원/분" },
