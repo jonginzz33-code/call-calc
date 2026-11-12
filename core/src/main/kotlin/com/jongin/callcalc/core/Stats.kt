@@ -227,10 +227,15 @@ object DetailParser {
             if (raw.isBlank() || skip.matches(raw)) continue
             var w = raw
             near.find(w)?.let { m -> if (m.range.first >= 2) w = w.substring(0, m.range.first) }
+            // 이름 끝에 붙은 동·층·호수 떼기: 서대문천연뜨란채104동 → 서대문천연뜨란채 (화곡1동 같은 동 이름은 그대로)
+            if (!regionWord.matches(w)) Regex("""\d+(동|층|호)$""").find(w)?.let { m -> if (m.range.first >= 2) w = w.substring(0, m.range.first) }
             val r = road.find(w)
             if (r != null) { out += r.groupValues[1]; out += r.groupValues[2]; continue }
-            // 혼자 남은 1~2자리 숫자 (목록 번호, "(0~" 같은 찌꺼기). 도로명 뒤 건물 번호는 위에서 처리
-            if (Regex("""^\d{1,2}$""").matches(w) && out.lastOrNull()?.let { it.endsWith("로") || it.endsWith("길") } != true) continue
+            // 혼자 남은 1~2자리 숫자 (목록 번호, "(0~" 같은 찌꺼기)는 빼기.
+            // 단, 도로명 뒤(건물 번호)나 동 이름 뒤(번지: 현석동 17)는 남김
+            if (Regex("""^\d{1,2}$""").matches(w) && out.lastOrNull()?.let {
+                    it.endsWith("로") || it.endsWith("길") || (regionWord.matches(it) && Regex("(동|가|리)$").containsMatchIn(it))
+                } != true) continue
             out += w
         }
         return out.filterIndexed { i, w -> i == 0 || w != out[i - 1] }
@@ -271,14 +276,42 @@ object DetailParser {
         !(regionWord.matches(w) && words.take(i).any { r -> regionWord.matches(r) && r != w && w.endsWith(r) })
     }
 
+    private val mergedJibun = Regex("""^[가-힣][가-힣0-9]*(동|가|리)\d+(-\d+)?$""")
+    private val topLevel = Regex("(특별시|광역시|특별자치시|특별자치도)$")
+
+    /**
+     * 다듬은 단어들 정리: 겹친 지역 이름 빼기, 같은 단어는 한 번만, 시 이름 조각(춘천시 뒤의 "춘천") 빼기,
+     * "서울특별시"처럼 큰 지역은 맨 앞으로
+     */
+    private fun tidy(place: String): List<String> {
+        val w = dropEchoes(cleanPlace(place)).distinct()
+        val stems = w.filter { regionWord.matches(it) }.mapNotNull { r ->
+            Regex("(특별시|광역시|시|군)$").replace(r, "").takeIf { it != r && it.length >= 2 }
+        }
+        val noStem = w.filter { it !in stems }
+        val top = noStem.filter { topLevel.containsMatchIn(it) }
+        return top + noStem.filter { it !in top }
+    }
+
     fun searchQueries(place: String): List<String> {
-        val words = dropEchoes(cleanPlace(place)).let { l -> l.filterIndexed { i, w -> i == 0 || w != l[i - 1] } }
+        val words = tidy(place)
         if (words.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         out += words.joinToString(" ")
         val region = words.takeWhile { regionWord.matches(it) }
-        val building = words.lastOrNull { !regionWord.matches(it) && !numberish.matches(it) && !generic.matches(it) }
-        if (region.isNotEmpty() && building != null) out += (region + stripRegionPrefix(building, region)).joinToString(" ")
+        // 건물 이름: 지역 뒤에 오는 단어들 통째로 (메가박스 스퀘어, 뚝섬역 2호선). 흔한 말·번지·도로명은 빼고
+        val rest = words.drop(region.size)
+        val name = rest.filterIndexed { i, w ->
+            !regionWord.matches(w) && !numberish.matches(w) && !generic.matches(w) && !mergedJibun.matches(w) &&
+                !((w.endsWith("로") || w.endsWith("길")) && rest.getOrNull(i + 1)?.let { numberish.matches(it) } == true)
+        }
+        if (region.isNotEmpty() && name.isNotEmpty()) {
+            val nm = listOf(stripRegionPrefix(name.first(), region)) + name.drop(1)
+            out += (region + nm).joinToString(" ")
+            // 새로 생긴 구처럼 지도가 모를 수 있어서: 동 이름 + 건물 이름만으로도 (검단구 원당동 혜정빌 → 원당동 혜정빌)
+            val low = region.filter { Regex("(동|읍|면|리|가)$").containsMatchIn(it) }
+            if (low.isNotEmpty() && low.size < region.size) out += (low + nm).joinToString(" ")
+        }
         for (n in words.size - 1 downTo 1) out += words.take(n).joinToString(" ")
         return out.toList()
     }
@@ -292,7 +325,7 @@ object DetailParser {
         val merged = Regex("""^([가-힣][가-힣0-9]*(?:동|가|리))(\d+(?:-\d+)?)$""")
         val out = mutableListOf<String>()
         var hasNumber = false
-        for (w in cleanPlace(place)) {
+        for (w in tidy(place)) {
             val m = merged.find(w)
             val parts = if (m != null) listOf(m.groupValues[1], m.groupValues[2]) else listOf(w)
             for (p in parts) when {
@@ -302,6 +335,7 @@ object DetailParser {
                 p.endsWith("로") || p.endsWith("길") -> out += p
             }
         }
-        return if (hasNumber && out.size >= 2) out.joinToString(" ") else null
+        val top = out.filter { topLevel.containsMatchIn(it) }
+        return if (hasNumber && out.size >= 2) (top + out.filter { it !in top }).joinToString(" ") else null
     }
 }

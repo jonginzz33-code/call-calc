@@ -117,4 +117,42 @@ class OrderScreenTest {
         assertFalse(DetailParser.isAreaOnly("구로구 오류동 이좋은집"))
         assertFalse(DetailParser.isAreaOnly("갈매동 614-5"))
     }
+
+    // ── 세 번째·네 번째 묶음 (14장) ──
+
+    @Test fun thirdBatch() {
+        // 현석동 17: 동 뒤 숫자는 번지
+        assertEquals("현석동 17", DetailParser.addressQuery("현석동 17"))
+        assertEquals("현석동 17", DetailParser.searchQueries("현석동 17").first())
+        // 붙은 104동 떼기
+        assertEquals("서대문구 천연동 서대문천연뜨란채", DetailParser.searchQueries("서대문구 천연동 서대문천연뜨란채104동").first())
+        assertTrue(DetailParser.searchQueries("서대문구 천연동 서대문천연뜨란채104동").contains("서대문구 천연동 천연뜨란채"))
+        // 동 이름(화곡1동)은 그대로
+        assertEquals("강서구 화곡1동", DetailParser.searchQueries("강서구 화곡1동").first())
+        // 겹친 지역 이름
+        assertEquals("서울특별시 강서구 방화동 831", DetailParser.addressQuery("강서구 방화동 서울특별시 강서구 방화동 831"))
+        assertEquals("서울특별시 강서구 방화동 831", DetailParser.searchQueries("강서구 방화동 서울특별시 강서구 방화동 831").first())
+        // 춘천.강촌로393
+        assertEquals("춘천시 남산면 강촌로 393", DetailParser.addressQuery("춘천시 남산면 춘천.강촌로393"))
+        assertTrue(DetailParser.searchQueries("춘천시 남산면 춘천.강촌로393").none { it.contains("춘천 ") || it.endsWith(" 춘천") })
+        // 검단구: 동 + 건물로도
+        assertTrue(DetailParser.searchQueries("검단구 원당동 혜정빌 1동").contains("원당동 혜정빌"))
+        // 강서로5가길24
+        assertEquals("강서구 화곡동 강서로5가길 24", DetailParser.addressQuery("강서구 화곡동 강서로5가길24"))
+    }
+
+    @Test fun fourthBatch() {
+        // 뚝섬역[2호선]: 호선은 꼭 같이 (환승역은 출입구가 멀어서)
+        val q = DetailParser.searchQueries("성동구 성수동1가 뚝섬역[2호선]")
+        assertEquals("성동구 성수동1가 뚝섬역 2호선", q[0])
+        assertTrue(q.none { it == "성동구 성수동1가 2호선" }, q.toString())
+        // 띄어 쓴 건물 이름은 통째로
+        assertTrue(DetailParser.searchQueries("성수동1가 메가박스 스퀘어").none { it == "성수동1가 스퀘어" })
+        assertTrue(DetailParser.searchQueries("행당동 오늘보쌈칼국수 왕십리본점").none { it == "행당동 왕십리본점" })
+        // 구 이름 조각 떼기
+        assertTrue(DetailParser.searchQueries("금천구 독산동 금천가산초교근처").contains("금천구 독산동 가산초교"))
+        assertEquals("하안동 890", DetailParser.addressQuery("하안동 890"))
+        assertEquals("서대문구 홍은동 홍은동벽산아파트", DetailParser.searchQueries("서대문구 홍은동 +홍은동벽산아파트").first())
+        assertEquals("석수동 석수두산위브", DetailParser.searchQueries("석수동 석수두산위브 106동").first())
+    }
 }

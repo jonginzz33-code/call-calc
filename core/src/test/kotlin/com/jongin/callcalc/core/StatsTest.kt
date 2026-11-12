@@ -185,7 +185,7 @@ class DetailTest {
 
     @Test fun searchGetsShorter() {
         assertEquals(
-            listOf("수원시 권선구 호매실동 호매실능실마을19단지아파트", "수원시 권선구 호매실동", "수원시 권선구", "수원시"),
+            listOf("수원시 권선구 호매실동 호매실능실마을19단지아파트", "호매실동 호매실능실마을19단지아파트", "수원시 권선구 호매실동", "수원시 권선구", "수원시"),
             DetailParser.searchQueries("수원시 권선구 호매실동 호매실능실마을19단지아파트"),
         )
     }
