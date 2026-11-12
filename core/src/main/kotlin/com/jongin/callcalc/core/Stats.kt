@@ -146,7 +146,7 @@ object DetailParser {
         // 출발 글자는 금액(가장 큰 숫자)보다 아래 것 (지도 위 "출발" 핀을 잘못 잡지 않게)
         val priceItem = items.filter { Extract.money(it.text) != null }.maxByOrNull { it.height }
         val start = items.filter { it.text.replace(" ", "") == "출발" && (priceItem == null || it.top > priceItem.top) }.minByOrNull { it.left }
-            ?: label("출발") ?: return parseStacked(items)
+            ?: return parseStacked(items) // 지도 위 "출발" 핀은 쓰지 않음 (못 찾으면 못 읽은 걸로)
         // 도착 글자는 출발 아래에 있는 것만 (지도 위 "도착" 핀을 잘못 잡지 않게).
         // 글자 인식이 도착을 잘못 읽으면(도작 등) "약 ○분 운행" 줄 아래를 도착으로
         val rideLine = items.filter { rideRe.containsMatchIn(it.text) && it.top > start.top }.minByOrNull { it.top }
@@ -189,8 +189,11 @@ object DetailParser {
         val items = splitLabels(raw.filter { it.text.isNotBlank() })
         val t = items.map { it.text.replace(" ", "") }
         val accept = t.any { it.contains("수락") }
-        val hasStart = t.any { it == "출발" }
-        val hasEnd = t.any { it == "도착" }
+        // 지도 위 핀 글자는 세지 않음: 금액(가장 큰 숫자)보다 아래에 있는 글자만
+        val priceTop = items.filter { Extract.money(it.text) != null }.maxByOrNull { it.height }?.top ?: Int.MIN_VALUE
+        fun below(name: String) = items.any { it.text.replace(" ", "") == name && it.top > priceTop }
+        val hasStart = below("출발")
+        val hasEnd = below("도착")
         if (!accept && !hasStart && !hasEnd) return null
         val missing = buildList {
             if (!accept) add("수락 버튼")

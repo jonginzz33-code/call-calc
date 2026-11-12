@@ -250,4 +250,18 @@ class OrderScreenTest {
         )
         assertEquals("삼성동 크리스찬서적", assertNotNull(DetailParser.parse(items)).origin)
     }
+
+    /** 아래쪽 "출발" 글자를 못 읽었으면 지도 핀 글자로 대신하지 않고 못 읽은 걸로 (신정동 로데오프라자 → "석대교 171" 방지) */
+    @Test fun mapPinIsNeverUsedAsStart() {
+        val items = listOf(
+            TextItem("출발", 650, 555, 730, 595), TextItem("동작대교", 880, 670, 960, 700), TextItem("171", 1000, 745, 1040, 775),
+            TextItem("28,000", 340, 940, 640, 1030), TextItem("1시간 이상 약 10.0km", 340, 1165, 845, 1220),
+            TextItem("줄발", 220, 1305, 285, 1345), TextItem("신정동 로데오프라자", 340, 1295, 815, 1355),
+            TextItem("약 50분 운행", 340, 1410, 612, 1465),
+            TextItem("도착", 220, 1530, 285, 1570), TextItem("파주시 야당동 야당역인근", 340, 1520, 930, 1580),
+            TextItem("닫기", 300, 1715, 390, 1770), TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        assertNull(DetailParser.parse(items))
+        assertTrue(DetailParser.diagnose(items)!!.contains("'출발'"))
+    }
 }
