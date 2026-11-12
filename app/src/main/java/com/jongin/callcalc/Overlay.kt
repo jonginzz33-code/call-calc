@@ -487,6 +487,8 @@ class Overlay(
         val ridePlace: String, val rideVal: String, val rideToll: String?, val rideTag: String?,
         val total: String, val money: String,       // 마지막 줄: 총 시간, 톨비 뺀 금액
         val warn: String?,                          // 문제 있을 때만 작은 한 줄
+        val pickupBad: Boolean = false,             // 찾은 곳의 동이 화면 주소와 다름 → 빨간색
+        val rideBad: Boolean = false,
     )
 
     /**
@@ -522,10 +524,10 @@ class Overlay(
         })
         box.addView(top)
 
-        fun row(label: String, place: String, value: String, extra: String?, tag: String?) {
+        fun row(label: String, place: String, value: String, extra: String?, tag: String?, bad: Boolean = false) {
             val r = svc.hbox().apply { layoutParams = lp().also { it.topMargin = dp(4) } }
             r.addView(svc.text("$label ", 14f, C.DIM))
-            r.addView(svc.text(place, 14f, Color.WHITE, bold = true).apply {
+            r.addView(svc.text(place, 14f, if (bad) C.BAD else Color.WHITE, bold = true).apply {
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }, lp(0, weight = 1f))
             r.addView(svc.text(value, 14f, Color.WHITE, bold = true).apply { setPadding(dp(6), 0, 0, 0) })
@@ -533,8 +535,8 @@ class Overlay(
             tag?.let { r.addView(svc.text(" $it", 11f, C.WARN, bold = true)) }
             box.addView(r)
         }
-        row("①", c.pickupPlace, c.pickupVal, null, c.pickupTag)
-        row("②", c.ridePlace, c.rideVal, c.rideToll, c.rideTag)
+        row("①", c.pickupPlace, c.pickupVal, null, c.pickupTag, c.pickupBad)
+        row("②", c.ridePlace, c.rideVal, c.rideToll, c.rideTag, c.rideBad)
 
         val bottom = svc.hbox().apply {
             layoutParams = lp().also { it.topMargin = dp(6) }

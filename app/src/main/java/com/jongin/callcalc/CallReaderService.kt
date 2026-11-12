@@ -581,6 +581,17 @@ class CallReaderService : AccessibilityService() {
             else -> listOfNotNull(km(l.km), l.min?.let { "${it}분" }).joinToString(" · ").ifEmpty { "—" }
         }
         fun short(place: String) = place.split(' ').let { w -> if (w.size > 2) w.takeLast(2).joinToString(" ") else place }
+        // 찾은 곳의 동 이름을 앞에 붙임 (원당동 혜정빌). 화면 주소의 동과 다르면 빨간색
+        fun withDong(pt: CallCheck.Point?, name: String): String {
+            val d = pt?.dong ?: return short(name)
+            val n = short(name)
+            return if (n.startsWith(d) || n.contains(" $d")) n else "$d $n"
+        }
+        fun wrongDong(pt: CallCheck.Point?, screen: String): Boolean {
+            val d = pt?.dong ?: return false
+            val hints = DetailParser.regionHints(screen).first
+            return hints.isNotEmpty() && hints.none { it == DetailParser.normDong(d) }
+        }
         val per = r.perMinute
         val perColor = when {
             per == null || r.prelim -> C.SUB  // 추정이면 색 바탕 없이 회색 글씨
@@ -608,8 +619,9 @@ class CallReaderService : AccessibilityService() {
         overlay.showCheckCard(Overlay.CheckCard(
             per = per?.let { (if (r.prelim) "추정 " else "") + "${num(it)}원/분" } ?: if (r.done) "—" else "계산 중…",
             perColor = perColor,
-            pickupPlace = short(r.originName), pickupVal = legVal(r.pickup), pickupTag = pickupTag,
-            ridePlace = short(r.destName), rideVal = legVal(r.ride),
+            pickupPlace = withDong(r.originPt, r.originName), pickupVal = legVal(r.pickup), pickupTag = pickupTag,
+            ridePlace = withDong(r.destPt, r.destName), rideVal = legVal(r.ride),
+            pickupBad = wrongDong(r.originPt, r.detail.origin), rideBad = wrongDong(r.destPt, r.detail.destination),
             rideToll = if (toll > 0) "톨 ${num(toll.toDouble())}" else null, rideTag = rideTag,
             total = r.totalMin?.let { "총 ${it}분" } ?: "",
             money = money,

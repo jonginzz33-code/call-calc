@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * 보내는 것: 출발지·도착지 이름, 내 위치 좌표뿐 (금액 등은 보내지 않음)
  */
 object CallCheck {
-    data class Point(val x: Double, val y: Double, val name: String) // x 경도, y 위도
+    data class Point(val x: Double, val y: Double, val name: String, val dong: String? = null) // x 경도, y 위도, dong = 찾은 곳의 동
 
     /** 한 구간. estimated = true 면 추정값 */
     data class Leg(val km: Double?, val min: Int?, val estimated: Boolean, val note: String? = null, val toll: Int = 0)
@@ -220,7 +220,7 @@ object CallCheck {
         val poi = pois[pick]
         val lat = poi.optString("frontLat").ifEmpty { poi.optString("noorLat") }.toDoubleOrNull() ?: return null
         val lon = poi.optString("frontLon").ifEmpty { poi.optString("noorLon") }.toDoubleOrNull() ?: return null
-        return Point(lon, lat, poi.optString("name").ifEmpty { q })
+        return Point(lon, lat, poi.optString("name").ifEmpty { q }, poi.optString("lowerAddrName").trim().ifEmpty { null })
     }
 
     // ───────── D. TMAP 서버와 미리 연결해 두기 (계산 요청 아님, 사용량에 안 들어감) ─────────
