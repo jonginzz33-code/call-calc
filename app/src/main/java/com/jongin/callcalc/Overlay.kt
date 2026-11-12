@@ -224,6 +224,11 @@ class Overlay(
         val list = shownRects.toMutableList()
         bubbleParams?.let { p -> bubble?.let { b -> list += Rect(p.x, p.y, p.x + b.width, p.y + b.height) } }
         checkParams?.let { p -> check?.let { c -> list += Rect(p.x, p.y, p.x + c.width, p.y + c.height) } }
+        // 콜 확인 창 자리는 읽지 않기 (창 글씨를 콜 화면으로 착각하지 않게)
+        cardParams?.let { _ -> cardHost?.takeIf { it.width > 0 }?.let { h ->
+            val loc = IntArray(2).also { h.getLocationOnScreen(it) }
+            list += Rect(loc[0], loc[1], loc[0] + h.width, loc[1] + h.height)
+        } }
         return list
     }
 
@@ -491,8 +496,10 @@ class Overlay(
      *   ② 운행 호매실동  24.1km · 38분 톨 2,400
      *   총 75분      18,400 − 톨 2,400 = 16,000원
      */
+    private var cardHost: android.widget.FrameLayout? = null
+    private var cardParams: WindowManager.LayoutParams? = null
+
     fun showCheckCard(c: CheckCard) {
-        hideResult()
         val box = svc.vbox().apply {
             background = svc.roundBg(Color.parseColor("#F51E232B"), Color.parseColor("#2F9E58"), 2, 14)
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -534,13 +541,21 @@ class Overlay(
             setPadding(0, dp(5), 0, 0)
             background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.TRANSPARENT) }
         }
-        bottom.addView(View(svc), lp(0, weight = 1f))
+        bottom.addView(View(svc), lp(0, 0, weight = 1f)) // 높이 0 (안 정하면 창이 화면 끝까지 늘어남)
         bottom.addView(svc.text(c.money, 14f, C.WARN, bold = true))
         box.addView(View(svc).apply { setBackgroundColor(Color.parseColor("#2B323C")) },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).also { it.topMargin = dp(6) })
         box.addView(bottom)
         c.warn?.let { box.addView(svc.text(it, 11f, C.WARN).apply { maxLines = 2 }.margins(svc, top = 3)) }
 
+        // 이미 떠 있으면 창은 그대로 두고 안의 내용만 바꿈 (지웠다 다시 띄우면 깜빡임)
+        cardHost?.takeIf { result === it }?.let { host ->
+            host.removeAllViews()
+            host.addView(box)
+            return
+        }
+        hideResult()
+        val host = android.widget.FrameLayout(svc).apply { addView(box) }
         val dm = svc.resources.displayMetrics
         val lp = WindowManager.LayoutParams(
             (dm.widthPixels * 0.92).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
@@ -552,8 +567,10 @@ class Overlay(
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = statusBarHeight() // 화면 맨 꼭대기 (수락 창의 금액·주소를 가리지 않게. 통계 글씨는 잠시 가려짐)
         }
-        runCatching { wm.addView(box, lp) }
-        result = box
+        runCatching { wm.addView(host, lp) }
+        result = host
+        cardHost = host
+        cardParams = lp
     }
 
     val resultShowing: Boolean get() = result != null
@@ -564,6 +581,8 @@ class Overlay(
     fun hideResult() {
         result?.let { runCatching { wm.removeView(it) } }
         result = null
+        cardHost = null
+        cardParams = null
     }
 
     private fun navBarHeight(): Int {

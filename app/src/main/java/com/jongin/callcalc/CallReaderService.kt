@@ -318,8 +318,10 @@ class CallReaderService : AccessibilityService() {
                     source = "캡처"
                     lastItems = res.items
                     val capDetail = DetailParser.parse(res.items)
-                    if (capDetail != null) prefetch(capDetail) else leftDetail()
                     val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(res.items)))
+                    // 수락 창이면 계산, 콜 목록이 확실히 보일 때만 콜 확인 창 닫기
+                    // (못 읽은 건 닫힌 게 아닐 수 있음 → 그대로 둠. 다른 앱으로 가면 따로 닫힘)
+                    if (capDetail != null) prefetch(capDetail) else if (rows.isNotEmpty()) leftDetail()
                     val manual = curPkg?.let { store.region(it) } != null
                     if (rows.isEmpty() && listTop != null && !manual) {
                         // 잘라 읽어서 못 찾았을 수 있음 → 다음엔 화면 전체로
