@@ -175,4 +175,24 @@ class OrderScreenTest {
         // 짧은 동 이름(신동)으로 신정동을 잘못 고르지 않음
         assertNull(DetailParser.pickPlace("신동 어린이집", listOf("양천구" to "신정동")))
     }
+
+    @Test fun labelsGluedWithoutSpace() {
+        val items = listOf(
+            TextItem("24,000", 340, 870, 640, 960), TextItem("이동1시간 이상 약 9.4km", 220, 1095, 820, 1150),
+            TextItem("출발논현동 켄버스 빌딩", 220, 1225, 780, 1285), TextItem("약 85분 운행", 340, 1340, 612, 1395),
+            TextItem("도착안양시 동안구 호계동", 220, 1450, 830, 1508), TextItem("호계동무궁화한양@", 340, 1520, 800, 1578),
+            TextItem("닫기", 300, 1715, 390, 1770), TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        val d = assertNotNull(DetailParser.parse(items))
+        assertEquals("논현동 켄버스 빌딩", d.origin)
+        assertEquals("안양시 동안구 호계동 호계동무궁화한양@", d.destination)
+        assertEquals(9.4, d.pickupKm)
+    }
+
+    @Test fun diagnoseSaysWhatIsMissing() {
+        val items = listOf(TextItem("출발", 220, 1235, 285, 1275), TextItem("논현동", 340, 1225, 700, 1285),
+            TextItem("도착", 220, 1460, 285, 1500), TextItem("콜 수락하기", 650, 1715, 880, 1770))
+        assertTrue(DetailParser.diagnose(items)!!.contains("금액"))
+        assertNull(DetailParser.diagnose(listOf(TextItem("오늘 날씨", 0, 0, 10, 10))))
+    }
 }

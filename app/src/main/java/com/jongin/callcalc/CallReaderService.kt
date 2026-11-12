@@ -305,6 +305,8 @@ class CallReaderService : AccessibilityService() {
     }
 
     /** 화면 캡처 + OCR. 이미 읽는 중이면 끝난 뒤 한 번 더 */
+    private var fullOnce = false
+
     private fun readByOcr() {
         val cap = CaptureService.instance
         if (cap == null) {
@@ -318,8 +320,12 @@ class CallReaderService : AccessibilityService() {
         if (ocrBusy) { ocrAgain = true; return }
         ocrBusy = true
         val startedAt = SystemClock.uptimeMillis()
-        // 읽을 네모: 직접 정한 영역 > 자동(목록 시작 높이 아래) > 상태바 아래 전체
-        val crop = curPkg?.let { store.region(it) } ?: cap.defaultCrop(listTop ?: statusBarHeight())
+        // 읽을 네모: 직접 정한 영역 > 자동(목록 시작 높이 아래) > 상태바 아래 전체.
+        // 잘라 읽어서 못 찾았으면 한 번은 화면 전체로 (수락 창은 목록용 네모 밖에 글자가 있어서)
+        val full = fullOnce
+        fullOnce = false
+        val crop = if (full) cap.defaultCrop(statusBarHeight())
+            else curPkg?.let { store.region(it) } ?: cap.defaultCrop(listTop ?: statusBarHeight())
         cap.captureAndRead(overlay.ownRects(), crop) { res ->
             ocrBusy = false
             val scrolledMeanwhile = lastScrollAt > startedAt
@@ -334,9 +340,10 @@ class CallReaderService : AccessibilityService() {
                     // (못 읽은 건 닫힌 게 아닐 수 있음 → 그대로 둠. 다른 앱으로 가면 따로 닫힘)
                     if (capDetail != null) prefetch(capDetail) else if (rows.isNotEmpty()) leftDetail()
                     val manual = curPkg?.let { store.region(it) } != null
-                    if (rows.isEmpty() && listTop != null && !manual) {
-                        // 잘라 읽어서 못 찾았을 수 있음 → 다음엔 화면 전체로
-                        listTop = null
+                    if (rows.isEmpty() && capDetail == null && !full && (manual || listTop != null)) {
+                        // 잘라 읽어서 못 찾았을 수 있음 → 기다리지 않고 바로 화면 전체로 한 번 더
+                        if (!manual) listTop = null
+                        fullOnce = true
                         cap.forgetLast()
                         ocrAgain = true
                     } else {
@@ -344,7 +351,7 @@ class CallReaderService : AccessibilityService() {
                         show(rows, res.ms, when {
                             rows.isNotEmpty() -> null
                             capDetail != null -> "상세 화면 · [콜 확인]으로 픽업·운행 계산"
-                            else -> "콜을 찾지 못했어요 (화면 캡처)"
+                            else -> DetailParser.diagnose(res.items)?.let { "$it (화면 캡처)" } ?: "콜을 찾지 못했어요 (화면 캡처)"
                         })
                     }
                 }

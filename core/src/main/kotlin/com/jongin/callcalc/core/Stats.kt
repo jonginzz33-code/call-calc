@@ -117,8 +117,9 @@ object DetailParser {
 
     /** 글자 인식이 "출발 선부동 선부3동주민센터"처럼 붙여 읽으면 "출발" 칸과 주소 칸으로 나눈다 */
     private fun splitLabels(items: List<TextItem>): List<TextItem> = items.flatMap { t ->
-        val m = Regex("""^\s*(출발|도착|이동)\s+(.+)$""").find(t.text) ?: return@flatMap listOf(t)
-        val label = m.groupValues[1]
+        // "출발 논현동…" 또는 띄어쓰기 없이 "출발논현동…"으로 붙어 읽혀도 나눔
+        val m = Regex("""^\s*(출\s?발|도\s?착|이\s?동)\s*(\S.*)$""").find(t.text) ?: return@flatMap listOf(t)
+        val label = m.groupValues[1].replace(" ", "")
         val rest = m.groupValues[2]
         val total = t.text.trim().length.coerceAtLeast(1)
         val cut = t.left + (t.right - t.left) * label.length / total
@@ -131,7 +132,7 @@ object DetailParser {
     fun parse(raw: List<TextItem>): CallDetail? {
         val items = splitLabels(raw.filter { it.text.isNotBlank() })
         if (items.none { it.text.replace(" ", "").contains("수락") }) return null
-        fun label(name: String) = items.filter { it.text.trim() == name }.minByOrNull { it.left }
+        fun label(name: String) = items.filter { it.text.replace(" ", "") == name }.minByOrNull { it.left }
         val start = label("출발")
         val end = label("도착")
         if (start == null || end == null) return parseStacked(items)
@@ -160,6 +161,24 @@ object DetailParser {
             .filter { it.centerY < start.top && (move == null || kotlin.math.abs(it.centerY - move.centerY) <= move.height) }
             .firstNotNullOfOrNull { Extract.km(it.text) }
         return CallDetail(price, origin, destination, ride, pickupKm, hasVia(items))
+    }
+
+    /** 수락 창으로 못 알아본 이유 (배너에 보여 주기). 수락 창처럼 안 보이면 null */
+    fun diagnose(raw: List<TextItem>): String? {
+        val items = splitLabels(raw.filter { it.text.isNotBlank() })
+        val t = items.map { it.text.replace(" ", "") }
+        val accept = t.any { it.contains("수락") }
+        val hasStart = t.any { it == "출발" }
+        val hasEnd = t.any { it == "도착" }
+        if (!accept && !hasStart && !hasEnd) return null
+        val missing = buildList {
+            if (!accept) add("수락 버튼")
+            if (!hasStart) add("'출발'")
+            if (!hasEnd) add("'도착'")
+            if (items.none { Extract.money(it.text) != null }) add("금액")
+            if (items.none { rideRe.containsMatchIn(it.text) }) add("'○분 운행'")
+        }
+        return if (missing.isEmpty()) "수락 창 같은데 주소 줄을 못 나눴어요" else "수락 창 글자 못 찾음: " + missing.joinToString(", ")
     }
 
     // "도보 1.7km / 약 34분" 처럼 맨 위에 있는 내 위치 → 출발지 거리 줄
