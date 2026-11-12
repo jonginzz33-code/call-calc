@@ -198,6 +198,16 @@ class SettingsActivity : AppCompatActivity() {
             live()
         })
 
+        // 수락 창 자동 콜 확인
+        val autoRow = hbox().apply { margins(this@SettingsActivity, top = 12) }
+        autoRow.addView(text("수락 창이 뜨면 콜 확인 자동으로 띄우기", 17f), lp(0, weight = 1f))
+        autoRow.addView(MaterialSwitch(this).apply {
+            isChecked = store.autoCheck
+            setOnCheckedChangeListener { _, v -> store.autoCheck = v; live() }
+        })
+        root.addView(autoRow)
+        root.addView(text("수락 창을 열면 [콜 확인]을 안 눌러도 결과가 떠요. 창을 누르면 닫히고, 수락 창을 닫으면 같이 닫혀요.", 15f, C.DIM))
+
         // 화면 꺼짐 대응
         fun switchRow(label: String, on: Boolean, set: (Boolean) -> Unit) {
             val row = hbox().apply { margins(this@SettingsActivity, top = 12) }

@@ -477,7 +477,7 @@ class Overlay(
 
     /** [콜 확인] 간추린 결과 (4줄) */
     data class CheckCard(
-        val per: String, val perColor: Int,          // 맨 위 오른쪽 큰 숫자: 분당 금액
+        val per: String, val perColor: Int,          // 맨 위 오른쪽 큰 숫자: 분당 금액 (perColor = 바탕 색 종류)
         val pickupPlace: String, val pickupVal: String, val pickupTag: String?,
         val ridePlace: String, val rideVal: String, val rideToll: String?, val rideTag: String?,
         val total: String, val money: String,       // 마지막 줄: 총 시간, 톨비 뺀 금액
@@ -496,11 +496,23 @@ class Overlay(
         val box = svc.vbox().apply {
             background = svc.roundBg(Color.parseColor("#F51E232B"), Color.parseColor("#2F9E58"), 2, 14)
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setOnClickListener { hideResult() }
+            setOnClickListener { hideResult(); onResultClosed?.invoke() }
         }
+        // 맨 윗줄: 🚗 콜 확인  총 39분  …  [410원/분] (색 바탕)
         val top = svc.hbox()
-        top.addView(svc.text("🚗 콜 확인", 14f, C.SUB, bold = true), lp(0, weight = 1f))
-        top.addView(svc.text(c.per, 26f, c.perColor, bold = true).apply { includeFontPadding = false })
+        top.addView(svc.text("🚗 콜 확인", 14f, C.SUB, bold = true))
+        top.addView(svc.text(c.total, 16f, C.ACCENT, bold = true).apply { setPadding(dp(10), 0, 0, 0) }, lp(0, weight = 1f))
+        val (pillBg, pillFg) = when (c.perColor) {
+            C.GOOD -> Color.parseColor("#7DFF7D") to Color.parseColor("#0C2A12")   // 좋은 콜
+            C.GRAY -> Color.parseColor("#3A4048") to Color.parseColor("#C7CED8")   // 기준 미달
+            C.SUB -> Color.TRANSPARENT to C.SUB                                     // 계산 중
+            else -> Color.parseColor("#FFD54A") to Color.parseColor("#111111")      // 보통
+        }
+        top.addView(svc.text(c.per, 24f, pillFg, bold = true).apply {
+            includeFontPadding = false
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = svc.roundBg(pillBg, pillBg, 1, 10)
+        })
         box.addView(top)
 
         fun row(label: String, place: String, value: String, extra: String?, tag: String?) {
@@ -522,8 +534,8 @@ class Overlay(
             setPadding(0, dp(5), 0, 0)
             background = android.graphics.drawable.GradientDrawable().apply { setColor(Color.TRANSPARENT) }
         }
-        bottom.addView(svc.text(c.total, 13f, C.ACCENT, bold = true), lp(0, weight = 1f))
-        bottom.addView(svc.text(c.money, 13f, C.WARN, bold = true))
+        bottom.addView(View(svc), lp(0, weight = 1f))
+        bottom.addView(svc.text(c.money, 14f, C.WARN, bold = true))
         box.addView(View(svc).apply { setBackgroundColor(Color.parseColor("#2B323C")) },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).also { it.topMargin = dp(6) })
         box.addView(bottom)
@@ -545,6 +557,9 @@ class Overlay(
     }
 
     val resultShowing: Boolean get() = result != null
+
+    /** 사용자가 결과 창을 눌러 닫았을 때 */
+    var onResultClosed: (() -> Unit)? = null
 
     fun hideResult() {
         result?.let { runCatching { wm.removeView(it) } }

@@ -215,6 +215,11 @@ class Store(context: Context) {
         get() = p.getBoolean("showCheckOn", true)
         set(v) = p.edit().putBoolean("showCheckOn", v).apply()
 
+    /** 수락 창(상세 화면)이 뜨면 콜 확인 창을 자동으로 띄우기 */
+    var autoCheck: Boolean
+        get() = p.getBoolean("autoCheck", true)
+        set(v) = p.edit().putBoolean("autoCheck", v).apply()
+
     /** [콜 확인] 버튼 위치 (따로 움직임) */
     var checkX: Int
         get() = p.getInt("checkX", -1)

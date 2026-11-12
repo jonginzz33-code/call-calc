@@ -118,6 +118,8 @@ class CallReaderService : AccessibilityService() {
                 Toast.makeText(this, "종료했어요. 앱을 다시 열면 켜져요", Toast.LENGTH_SHORT).show()
             },
         )
+        // 결과 창을 눌러 닫으면, 그 콜은 자동으로 다시 띄우지 않음
+        overlay.onResultClosed = { dismissedKey = shownJobKey; shownJobKey = null }
         // 화면이 다시 켜지면: 꺼지면서 끊긴 화면 캡처를 다시 묻기
         androidx.core.content.ContextCompat.registerReceiver(this, screenReceiver, android.content.IntentFilter().apply {
             addAction(android.content.Intent.ACTION_USER_PRESENT)
@@ -247,7 +249,7 @@ class CallReaderService : AccessibilityService() {
         // 계산기 자기 화면 위에서는 표시하지 않음
         if (pkg == null || pkg == packageName || !store.watches(pkg)) {
             // 키보드나 알림창 등이 잠깐 위에 올라온 경우가 아니면 숨긴다
-            if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg; CallCheck.stopLocation(this) }
+            if (pkg != null) { hideLabels(); overlay.hideBubble(); lastPkg = pkg; CallCheck.stopLocation(this); leftDetail() }
             return
         }
         if (lastPkg != pkg) { memory.clear(); listTop = null; sticky.clear(); lastPkg = pkg }
@@ -271,6 +273,7 @@ class CallReaderService : AccessibilityService() {
             lastItems = items
             // 콜 상세 화면(수락 전)이면: 목록이 아니니 "못 읽었어요" 안내 없이, [콜 확인]을 쓰면 됨
             val detail = if (rows.isEmpty()) DetailParser.parse(items) else null
+            if (detail == null && (rows.isNotEmpty() || mode == 1)) leftDetail()
             if (detail != null) {
                 prefetch(detail)
                 source = "접근성"
@@ -313,7 +316,7 @@ class CallReaderService : AccessibilityService() {
                     source = "캡처"
                     lastItems = res.items
                     val capDetail = DetailParser.parse(res.items)
-                    capDetail?.let { prefetch(it) }
+                    if (capDetail != null) prefetch(capDetail) else leftDetail()
                     val rows = stick(LiveRules.dropEdgeFailures(CallParser.parse(res.items)))
                     val manual = curPkg?.let { store.region(it) } != null
                     if (rows.isEmpty() && listTop != null && !manual) {
@@ -516,10 +519,32 @@ class CallReaderService : AccessibilityService() {
         return job
     }
 
-    /** 상세 화면이 보이면 미리 계산 시작 (누르기 전에) */
+    private var dismissedKey: String? = null
+    private var autoShown = false
+
+    /**
+     * 수락 창(상세 화면)이 보이면: 미리 계산 시작, 자동 띄우기가 켜져 있으면 콜 확인 창도 바로 띄움.
+     * (사용자가 눌러 닫은 콜은 다시 띄우지 않음)
+     */
     private fun prefetch(d: com.jongin.callcalc.core.CallDetail) {
+        if (store.autoCheck) {
+            val k = jobKey(d)
+            if (k != dismissedKey && (shownJobKey != k || !overlay.resultShowing)) {
+                runPickup(d)
+                autoShown = true
+            }
+            return
+        }
         if (store.tmapKey.isBlank() || !store.showCheckOn) return
         jobFor(d)
+    }
+
+    /** 상세 화면이 아니게 되면 (수락 창 닫힘) 자동으로 띄운 창도 닫기 */
+    private fun leftDetail() {
+        dismissedKey = null
+        if (autoShown && overlay.resultShowing) overlay.hideResult()
+        autoShown = false
+        shownJobKey = null
     }
 
     /** 계산 결과 → 결과 카드 (나오는 대로 갱신) */
@@ -563,7 +588,7 @@ class CallReaderService : AccessibilityService() {
             pickupPlace = short(r.originName), pickupVal = legVal(r.pickup), pickupTag = pickupTag,
             ridePlace = short(r.destName), rideVal = legVal(r.ride),
             rideToll = if (toll > 0) "톨 ${num(toll.toDouble())}" else null, rideTag = rideTag,
-            total = r.totalMin?.let { "총 ${it}분" } ?: "총 …",
+            total = r.totalMin?.let { "총 ${it}분" } ?: "",
             money = money,
             warn = warn,
         ))
