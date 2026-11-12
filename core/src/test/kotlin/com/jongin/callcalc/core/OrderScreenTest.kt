@@ -70,7 +70,7 @@ class OrderScreenTest {
     }
 
     @Test fun roadNumberIsSplit() {
-        assertEquals("고양시 일산동구 마두동 일산마두동 강촌로 191", DetailParser.searchQueries("고양시 일산동구 마두동 일산마두동 강촌로191").first())
+        assertEquals("고양시 일산동구 마두동 강촌로 191", DetailParser.searchQueries("고양시 일산동구 마두동 일산마두동 강촌로191").first())
         assertEquals("고양시 일산동구 마두동 강촌로 191", DetailParser.addressQuery("고양시 일산동구 마두동 일산마두동 강촌로191"))
     }
 
@@ -81,5 +81,40 @@ class OrderScreenTest {
         assertNull(DetailParser.addressQuery("공릉동 이안클래식"))
         assertNull(DetailParser.addressQuery("노원구 중계동 동진신안아파트"))
         assertFalse(DetailParser.searchQueries("금호동3가 420-1").isEmpty())
+    }
+
+    // ── 두 번째 묶음 (10장) ──
+
+    @Test fun secondBatchReads() {
+        val a = assertNotNull(DetailParser.parse(screen("40,000", "1시간 이상 약 6.8km", listOf("청담동 용강빌딩"), "약 77분 운행",
+            listOf("수원시 권선구 곡반정동", "수원곡반정동,하나로마트"))))
+        assertEquals(40000.0, a.price); assertEquals(6.8, a.pickupKm); assertEquals(77.0, a.rideMin)
+        val b = assertNotNull(DetailParser.parse(screen("16,000", "1시간 이상 약 9.4km", listOf("동선동4가", "서울미래새마을금고본사 사옥"), "약 17분 운행",
+            listOf("성북구 정릉동 정릉동청수장"))))
+        assertEquals("동선동4가 서울미래새마을금고본사 사옥", b.origin)
+        val c = assertNotNull(DetailParser.parse(screen("18,400", "1시간 이상 약 6.1km", listOf("서교동 메세나폴리스", "상가주차장"), "약 36분 운행",
+            listOf("구로구 오류동 이좋은집"))))
+        assertEquals(18400.0, c.price); assertEquals("서교동 메세나폴리스 상가주차장", c.origin)
+    }
+
+    @Test fun genericWordsAreNotBuildings() {
+        val q1 = DetailParser.searchQueries("동선동4가 서울미래새마을금고본사 사옥")
+        assertTrue(q1.none { it == "동선동4가 사옥" }, q1.toString())
+        assertEquals("동선동4가 서울미래새마을금고본사", q1[1])
+        val q2 = DetailParser.searchQueries("서교동 메세나폴리스 상가주차장")
+        assertTrue(q2.none { it == "서교동 상가주차장" }, q2.toString())
+        assertEquals("서교동 메세나폴리스", q2[1])
+    }
+
+    @Test fun echoesAndNearbyWords() {
+        assertEquals("파주시 야당동 야당역", DetailParser.searchQueries("파주시 야당동 야당역인근").first())
+        assertEquals("수원시 권선구 곡반정동 하나로마트", DetailParser.searchQueries("수원시 권선구 곡반정동 수원곡반정동,하나로마트").first())
+        assertEquals("송파구 방이동 오륜동올림픽", DetailParser.searchQueries("송파구 방이동 송파오륜동올림픽@")[1])
+    }
+
+    @Test fun areaOnlyIsDetected() {
+        assertTrue(DetailParser.isAreaOnly("금천구 독산동 독산동"))
+        assertFalse(DetailParser.isAreaOnly("구로구 오류동 이좋은집"))
+        assertFalse(DetailParser.isAreaOnly("갈매동 614-5"))
     }
 }

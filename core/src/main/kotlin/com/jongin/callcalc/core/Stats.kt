@@ -219,9 +219,9 @@ object DetailParser {
             .replace(Regex("""(^|\s)\d{1,2}\)"""), " ")
             .replace(Regex("[.,·]"), " ")
             .replace(Regex("[^가-힣0-9A-Za-z\\s-]"), " ")
-        val skip = Regex("""^(\d+-?\d*(동|호|층)|근처|부근|-+|카드|현금|카드결제|현금결제)$""")
+        val skip = Regex("""^(\d+-?\d*(동|호|층)|근처|부근|인근|-+|카드|현금|카드결제|현금결제)$""")
         val road = Regex("""^([가-힣0-9]*[가-힣](?:로|길))(\d+(?:-\d+)?)$""")
-        val near = Regex("""(부근|근처|건너편|맞은편)$""")
+        val near = Regex("""(부근|근처|인근|건너편|맞은편)$""")
         val out = mutableListOf<String>()
         for (raw in t.split(Regex("\\s+"))) {
             if (raw.isBlank() || skip.matches(raw)) continue
@@ -245,7 +245,7 @@ object DetailParser {
         var s = word
         var cut = false
         for (r in region) {
-            val stem = Regex("(특별시|광역시|시|군)$").replace(r, "")
+            val stem = Regex("(특별시|광역시|시|군|구)$").replace(r, "")
             if (stem != r && stem.length >= 2 && s.startsWith(stem) && s.length - stem.length >= 2) { s = s.removePrefix(stem); cut = true }
         }
         if (cut) for (r in region) if (s.startsWith(r) && s.length - r.length >= 2) s = s.removePrefix(r)
@@ -257,13 +257,27 @@ object DetailParser {
      *  ① 다듬은 전체  ② 지역 + 건물 이름(마지막 단어)  ③ 뒤에서부터 한 단어씩 줄이기 (동 이름까지)
      *  예) "시흥시 은행동 시흥은행동661.한양수자인@" → "시흥시 은행동 시흥은행동661 한양수자인", "시흥시 은행동 한양수자인", ...
      */
+    /** 건물 이름으로 쓰면 안 되는 흔한 말 (서교동 상가주차장 → 아무 주차장이나 나옴) */
+    private val generic = Regex("""^(사옥|본사|본점|정문|후문|입구|출구|상가|본관|별관|로비|(상가|지하|지상|옥외|공영|야외)?주차장)$""")
+
+    /** 동 이름까지만 있고 건물·번지가 없는 주소 ("금천구 독산동 독산동") → 위치가 대략 */
+    fun isAreaOnly(place: String): Boolean {
+        val w = cleanPlace(place)
+        return w.isNotEmpty() && w.all { regionWord.matches(it) }
+    }
+
+    /** 앞에 나온 지역 이름을 품은 지역 단어 빼기: "곡반정동 수원곡반정동" → "곡반정동" */
+    private fun dropEchoes(words: List<String>): List<String> = words.filterIndexed { i, w ->
+        !(regionWord.matches(w) && words.take(i).any { r -> regionWord.matches(r) && r != w && w.endsWith(r) })
+    }
+
     fun searchQueries(place: String): List<String> {
-        val words = cleanPlace(place)
+        val words = dropEchoes(cleanPlace(place)).let { l -> l.filterIndexed { i, w -> i == 0 || w != l[i - 1] } }
         if (words.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         out += words.joinToString(" ")
         val region = words.takeWhile { regionWord.matches(it) }
-        val building = words.lastOrNull { !regionWord.matches(it) && !numberish.matches(it) }
+        val building = words.lastOrNull { !regionWord.matches(it) && !numberish.matches(it) && !generic.matches(it) }
         if (region.isNotEmpty() && building != null) out += (region + stripRegionPrefix(building, region)).joinToString(" ")
         for (n in words.size - 1 downTo 1) out += words.take(n).joinToString(" ")
         return out.toList()

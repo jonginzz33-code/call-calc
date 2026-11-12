@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
 
         // 머리: 계산기 · [🛡 관리자] · v0.8.0 ⟳
         val header = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
-        header.addView(text("계산기", 28f, bold = true), lp(0, weight = 1f))
+        header.addView(text("콜산", 28f, bold = true), lp(0, weight = 1f))
         if (Cloud.isAdmin(this)) {
             header.addView(text("🛡 관리자", 15f, C.WARN, bold = true).apply {
                 setPadding(dp(10), dp(8), dp(10), dp(8))
@@ -383,9 +383,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exitApp() {
+        val accOn = CallReaderService.instance != null
+        if (!accOn) { finishExit(false); return }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("접근성도 끌까요?")
+            .setMessage("끄면 토스·은행 앱을 쓸 때 콜산이 화면을 읽을 수 없는 상태가 돼서 더 안전해요.\n\n대신 다음에 [▶ 시작]을 누르면 접근성 스위치를 다시 켜야 해요 (안내가 떠요).")
+            .setPositiveButton("끄고 종료") { _, _ -> finishExit(true) }
+            .setNegativeButton("그냥 종료") { _, _ -> finishExit(false) }
+            .setNeutralButton("취소", null)
+            .show()
+    }
+
+    private fun finishExit(accOff: Boolean) {
         stopAll()
         if (CaptureService.instance != null) CaptureService.stop(this)
-        toast("앱을 종료했어요. 다시 열면 [▶ 시작]을 눌러 주세요")
+        if (accOff) CallReaderService.instance?.turnOff()
+        toast(if (accOff) "접근성까지 끄고 종료했어요" else "앱을 종료했어요. 다시 열면 [▶ 시작]을 눌러 주세요")
         finishAndRemoveTask()
     }
 

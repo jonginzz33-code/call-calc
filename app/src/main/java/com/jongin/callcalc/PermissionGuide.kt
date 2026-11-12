@@ -27,14 +27,14 @@ object PermissionGuide {
     )
 
     private val accessibility = Perm(
-        title = "접근성 (계산기)",
+        title = "접근성 (콜산)",
         why = "콜 앱 화면의 글자를 읽고, 콜 옆에 계산값을 띄워요.",
         steps = listOf(
-            "아래 [켜러 가기]를 누르면 계산기 스위치 화면이 바로 열려요",
+            "아래 [켜러 가기]를 누르면 콜산 스위치 화면이 바로 열려요",
             "스위치를 켜고 [허용]을 눌러요",
             "켜지면 자동으로 이 앱으로 돌아와요",
         ),
-        hint = "계산기 스위치를 켜고 [허용]을 눌러 주세요\n(목록이 나오면 '설치된 앱' → 계산기)",
+        hint = "콜산 스위치를 켜고 [허용]을 눌러 주세요\n(목록이 나오면 '설치된 앱' → 콜산)",
         note = "스위치가 회색으로 잠겨 안 켜지면: [앱 정보 열기] → 오른쪽 위 ⋮ → '제한된 설정 허용' → 다시 [켜러 가기]",
         extra = "앱 정보 열기" to { a ->
             a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))

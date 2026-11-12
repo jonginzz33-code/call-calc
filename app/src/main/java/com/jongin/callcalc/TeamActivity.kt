@@ -151,7 +151,7 @@ class TeamActivity : AppCompatActivity() {
 
     private fun testSend() {
         val svc = CallReaderService.instance
-        if (svc == null) { toast("접근성(계산기)이 켜져 있어야 해요"); return }
+        if (svc == null) { toast("접근성(콜산)이 켜져 있어야 해요"); return }
         svc.testSend { err -> if (err != null) toast(err) }
     }
 }

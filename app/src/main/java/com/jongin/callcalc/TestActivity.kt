@@ -56,7 +56,7 @@ class TestActivity : AppCompatActivity() {
         val root = vbox(16)
         scrollPage(root)
         root.addView(text("🧪 시험하기 (사진)", 26f, bold = true))
-        root.addView(text("콜 목록 스크린샷을 골라서 글자를 제대로 읽는지, 계산이 맞는지 확인해요. 갤러리에서 [공유 → 계산기]로 보내도 돼요.", 14f, C.DIM).margins(this, top = 4))
+        root.addView(text("콜 목록 스크린샷을 골라서 글자를 제대로 읽는지, 계산이 맞는지 확인해요. 갤러리에서 [공유 → 콜산]로 보내도 돼요.", 14f, C.DIM).margins(this, top = 4))
         root.addView(button("📷 스크린샷 고르기", big = true) {
             pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }.margins(this, top = 12))

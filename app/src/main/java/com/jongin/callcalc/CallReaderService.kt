@@ -591,7 +591,11 @@ class CallReaderService : AccessibilityService() {
             if (r.ride?.estimated == true) "추정" else null,
         ).joinToString("·").ifEmpty { null }
         // 문제가 있을 때만 작은 한 줄 (경유 안내는 태그로 충분해서 빼기)
-        val warn = if (!doneWarn) null else listOfNotNull(r.pickup?.note, r.ride?.note)
+        val areaOnly = listOfNotNull(
+            if (DetailParser.isAreaOnly(r.detail.origin)) "출발" else null,
+            if (DetailParser.isAreaOnly(r.detail.destination)) "도착" else null,
+        ).takeIf { it.isNotEmpty() }?.let { "⚠ ${it.joinToString("·")}이 동 이름만 있어서 위치가 대략이에요" }
+        val warn = if (!doneWarn) null else (listOfNotNull(areaOnly, r.pickup?.note, r.ride?.note))
             .map { it.replace(Regex("경유지 있음[^·]*·?\\s*"), "").trim() }
             .filter { it.isNotBlank() }.distinct().joinToString(" · ").ifEmpty { null }
         overlay.showCheckCard(Overlay.CheckCard(
@@ -720,6 +724,12 @@ class CallReaderService : AccessibilityService() {
                 if (err != null) Toast.makeText(this, "기록 실패: $err", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    /** [앱 종료] → "끄고 종료": 접근성 스위치를 스스로 끔 (켜는 건 사람이 직접) */
+    fun turnOff() {
+        runCatching { pause() }
+        runCatching { disableSelf() }
     }
 
     /** 팀 화면의 [시험으로 보내기] */

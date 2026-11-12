@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="acc_summary">콜 목록을 읽어 계산값을 띄워요</string>
-    <string name="acc_desc">고른 콜 앱이 화면에 있을 때만 콜 목록의 거리·시간·금액 글자를 읽어서, 콜 옆에 계산값과 색을 띄워요.\n\n읽기만 해요. 자동 터치나 자동 수락은 하지 않아요. 읽은 내용은 폰 밖으로 보내지 않아요.</string>
+    <string name="acc_summary">콜 앱 화면의 거리·시간·금액을 읽어 계산해요</string>
+    <string name="acc_desc">콜산: 대리운전 콜 계산 도우미.\n\n감시할 콜 앱으로 고른 앱이 화면에 있을 때만 그 화면의 거리·시간·금액 글자를 읽어서, 콜 옆에 계산값을 띄워요. 은행·결제 앱 같은 다른 앱은 읽지 않아요.\n\n읽기만 해요. 자동 터치나 자동 수락은 하지 않아요. [앱 종료] 때 이 스위치를 끌 수 있어요.</string>
 </resources>
