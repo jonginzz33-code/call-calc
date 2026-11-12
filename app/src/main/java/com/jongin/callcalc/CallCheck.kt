@@ -40,14 +40,17 @@ object CallCheck {
         val ride: Leg?,
         val done: Boolean,
         val prelim: Boolean = false, // true = 콜 앱 화면 숫자로 낸 첫 추정 (TMAP 결과 오기 전)
+        val originPt: Point? = null, // TMAP 이 찾은 위치 (팀에 보낼 때 길안내용)
+        val destPt: Point? = null,
+        val car: Int = 0,            // 톨비 기준 차 (0 = 톨비 계산 안 함)
     ) {
         val totalMin: Int? get() {
             val p = pickup?.min ?: return null
             val r = ride?.min ?: return null
             return p + r
         }
-        /** ② 운행 구간 통행료 (TMAP 추천 경로, 승용차) */
-        val toll: Int get() = ride?.toll ?: 0
+        /** ② 운행 구간 통행료 (TMAP 추천 경로, 설정한 따라가는 차 기준). 톨비 계산 없음이면 0 */
+        val toll: Int get() = if (car == 0) 0 else ride?.toll ?: 0
         /** 톨비 뺀 금액 */
         val net: Double get() = detail.price - toll
         /** 분당 금액 = (실수익 − 톨비) ÷ 총 시간 */
@@ -68,9 +71,9 @@ object CallCheck {
      * 계산 시작. onUpdate 는 메인 스레드에서 여러 번 (픽업 먼저, 그다음 운행) 불린다. 마지막은 done = true.
      * minPerKm: 추정할 때 쓰는 픽업 1km당 분 (설정값)
      */
-    fun run(detail: CallDetail, key: String, me: Location?, minPerKm: Double, onUpdate: (Result) -> Unit) {
+    fun run(detail: CallDetail, key: String, me: Location?, minPerKm: Double, car: Int, onUpdate: (Result) -> Unit) {
         pool.execute {
-            var cur = Result(detail, detail.origin, detail.destination, null, null, false)
+            var cur = Result(detail, detail.origin, detail.destination, null, null, false, car = car)
             fun post(r: Result) { cur = r; main.post { onUpdate(r) } }
 
             val my = me?.let { Point(it.longitude, it.latitude, "내 위치") }
@@ -89,11 +92,11 @@ object CallCheck {
             val dF = pool.submit<Point?> { findPlace(detail.destination, key, my) }
             val (o, oErr) = get(oF)
             // ① 픽업 길찾기 (출발지 찾자마자 시작)
-            val pickF: Future<Triple<Int, Int, Int>?>? = if (o != null && my != null) pool.submit<Triple<Int, Int, Int>?> { carRoute(my, o, key) } else null
+            val pickF: Future<Triple<Int, Int, Int>?>? = if (o != null && my != null) pool.submit<Triple<Int, Int, Int>?> { carRoute(my, o, key, car) } else null
             val (d, dErr) = get(dF)
             // ② 운행 길찾기
-            val rideF: Future<Triple<Int, Int, Int>?>? = if (o != null && d != null) pool.submit<Triple<Int, Int, Int>?> { carRoute(o, d, key) } else null
-            cur = cur.copy(originName = o?.name ?: detail.origin, destName = d?.name ?: detail.destination)
+            val rideF: Future<Triple<Int, Int, Int>?>? = if (o != null && d != null) pool.submit<Triple<Int, Int, Int>?> { carRoute(o, d, key, car) } else null
+            cur = cur.copy(originName = o?.name ?: detail.origin, destName = d?.name ?: detail.destination, originPt = o, destPt = d)
 
             // ① 결과 먼저 보여 주기
             val pickup = when {
@@ -222,14 +225,18 @@ object CallCheck {
 
     fun init(ctx: Context) { appCtx = ctx.applicationContext }
 
+    /** TMAP 차 종류 (톨비 기준). 0 = 톨비 계산 없음 */
+    val CARS = listOf(0 to "없음 (혼자)", 6 to "경차", 1 to "승용차", 2 to "중형 승합", 3 to "대형 승합", 4 to "화물")
+    fun carName(car: Int) = CARS.firstOrNull { it.first == car }?.second ?: "승용차"
+
     /** TMAP 자동차 경로안내 (추천, 교통 반영, 승용차). (거리 m, 시간 초, 통행료 원) */
-    private fun carRoute(o: Point, d: Point, key: String): Triple<Int, Int, Int>? {
+    private fun carRoute(o: Point, d: Point, key: String, car: Int): Triple<Int, Int, Int>? {
         val body = JSONObject()
             .put("startX", o.x.toString()).put("startY", o.y.toString())
             .put("endX", d.x.toString()).put("endY", d.y.toString())
             .put("reqCoordType", "WGS84GEO").put("resCoordType", "WGS84GEO")
             .put("searchOption", "0")
-            .put("carType", 1) // 승용차 (통행료 계산용)
+            .put("carType", if (car == 0) 1 else car) // 톨비 기준 차 (0 이면 승용차로 길만 찾음)
             .put("totalValue", 2)
         val j = request("$API/routes?version=1", key, body.toString()) ?: return null
         val props = j.optJSONArray("features")?.optJSONObject(0)?.optJSONObject("properties") ?: return null

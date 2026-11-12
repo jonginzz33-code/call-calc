@@ -121,6 +121,7 @@ class CallReaderService : AccessibilityService() {
         )
         // 결과 창을 눌러 닫으면, 그 콜은 자동으로 다시 띄우지 않음
         overlay.onResultClosed = { dismissedKey = shownJobKey; shownJobKey = null }
+        cloudChanged() // 2인 1조: 팀 알림 듣기
         // 화면이 다시 켜지면: 꺼지면서 끊긴 화면 캡처를 다시 묻기
         androidx.core.content.ContextCompat.registerReceiver(this, screenReceiver, android.content.IntentFilter().apply {
             addAction(android.content.Intent.ACTION_USER_PRESENT)
@@ -141,6 +142,8 @@ class CallReaderService : AccessibilityService() {
                 if (target) { memory.clear(); listTop = null; sticky.clear() }
                 schedule(60)
             }
+            // 사용자가 콜 앱의 [수락] 버튼을 직접 누름 → 팀에 보내기·기록 (대신 누르지는 않음)
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> if (target && isAcceptClick(e)) onAccepted()
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> if (target) {
                 // 스크롤하는 동안은 숨기고, 멈추면 다시 읽는다
                 lastScrollAt = SystemClock.uptimeMillis()
@@ -171,6 +174,7 @@ class CallReaderService : AccessibilityService() {
 
     private fun cleanup() {
         handler.removeCallbacksAndMessages(null)
+        teamListener?.remove(); teamListener = null
         CallCheck.stopLocation(this)
         if (::stats.isInitialized) stats.save()
         runCatching { unregisterReceiver(screenReceiver) }
@@ -506,7 +510,7 @@ class CallReaderService : AccessibilityService() {
     private val jobs = LinkedHashMap<String, CheckJob>()
     private var shownJobKey: String? = null
 
-    private fun jobKey(d: com.jongin.callcalc.core.CallDetail) = "${d.origin}|${d.destination}|${d.price}"
+    private fun jobKey(d: com.jongin.callcalc.core.CallDetail) = "${d.origin}|${d.destination}|${d.price}|${store.tollCar}"
 
     /** 이 콜의 계산 (이미 있으면 그것, 없으면 새로 시작) */
     private fun jobFor(d: com.jongin.callcalc.core.CallDetail): CheckJob {
@@ -516,7 +520,7 @@ class CallReaderService : AccessibilityService() {
         val job = CheckJob(k, now)
         jobs[k] = job
         while (jobs.size > 20) jobs.remove(jobs.keys.first())
-        CallCheck.run(d, store.tmapKey, CallCheck.freshLocation(this), store.pickupMinPerKm) { r ->
+        CallCheck.run(d, store.tmapKey, CallCheck.freshLocation(this), store.pickupMinPerKm, store.tollCar) { r ->
             job.latest = r
             job.listener?.invoke(r)
         }
@@ -531,6 +535,8 @@ class CallReaderService : AccessibilityService() {
      * (사용자가 눌러 닫은 콜은 다시 띄우지 않음)
      */
     private fun prefetch(d: com.jongin.callcalc.core.CallDetail) {
+        lastDetail = d
+        lastDetailAt = SystemClock.uptimeMillis()
         if (store.autoCheck) {
             val k = jobKey(d)
             if (k != dismissedKey && (shownJobKey != k || !overlay.resultShowing)) {
@@ -575,7 +581,7 @@ class CallReaderService : AccessibilityService() {
             else -> C.FG
         }
         val toll = r.toll
-        val money = if (toll > 0) "${num(r.detail.price)} − 톨 ${num(toll.toDouble())} = ${num(r.net)}원"
+        val money = if (toll > 0) "${num(r.detail.price)} − 톨 ${num(toll.toDouble())} (${CallCheck.carName(r.car)}) = ${num(r.net)}원"
             else "${num(r.detail.price)}원"
         val pickupTag = if (r.pickup?.estimated == true) "추정" else null
         val doneWarn = r.done
@@ -641,6 +647,84 @@ class CallReaderService : AccessibilityService() {
         }
         return out
     }
+
+    // ───────── 2인 1조: 수락한 콜 → 팀에 보내기 + 기록 ─────────
+
+    private var lastDetail: com.jongin.callcalc.core.CallDetail? = null
+    private var lastDetailAt = 0L
+    private var lastSentKey: String? = null
+    private var lastSentAt = 0L
+    private var teamListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    /** 로그인·팀이 바뀌면 팀 알림 듣기를 다시 */
+    fun cloudChanged() {
+        teamListener?.remove(); teamListener = null
+        if (Cloud.signedIn && Cloud.teamCode(this) != null) {
+            teamListener = runCatching { Cloud.listen(this) { id, data -> Share.notify(this, id, data) } }.getOrNull()
+        }
+    }
+
+    /** 눌린 버튼이 [수락] 버튼인지 (글자로 판단) */
+    private fun isAcceptClick(e: AccessibilityEvent): Boolean {
+        val words = buildList {
+            e.text?.forEach { add(it?.toString().orEmpty()) }
+            add(e.contentDescription?.toString().orEmpty())
+            runCatching { e.source?.let { n -> add(n.text?.toString().orEmpty()); add(n.contentDescription?.toString().orEmpty()) } }
+        }.joinToString(" ")
+        return "수락" in words && listOf("취소", "거절", "닫기", "불가").none { it in words }
+    }
+
+    /** 수락한 콜: 화면 사진은 바로 찍어 두고, 계산이 끝나면(최대 몇 초) 팀에 보내고 기록 */
+    private fun onAccepted(test: Boolean = false, done: ((String?) -> Unit)? = null) {
+        val d = lastDetail
+        val now = SystemClock.uptimeMillis()
+        if (d == null) { done?.invoke("최근에 읽은 수락 창이 없어요 (수락 창을 한 번 띄운 뒤 시험해 주세요)"); return }
+        if (!test && now - lastDetailAt > 120_000) return
+        val share = Cloud.signedIn && Cloud.teamCode(this) != null && (test || Cloud.shareOn(this))
+        val rec = !test && Cloud.signedIn && Cloud.recordOn(this)
+        if (!share && !rec) { done?.invoke(if (!Cloud.signedIn) "로그인이 안 되어 있어요" else "팀이 없어요"); return }
+        val k = jobKey(d)
+        if (!test && k == lastSentKey && now - lastSentAt < 180_000) return // 같은 콜 두 번 안 보냄
+        lastSentKey = k; lastSentAt = now
+        val job = jobFor(d)
+        val app = curPkg
+
+        fun whenDone(maxMs: Long, then: (CallCheck.Result?) -> Unit) {
+            val start = SystemClock.uptimeMillis()
+            fun check() {
+                val r = job.latest
+                if (r?.done == true || SystemClock.uptimeMillis() - start >= maxMs) then(r) else handler.postDelayed({ check() }, 250)
+            }
+            check()
+        }
+
+        if (share) {
+            val send = { img: String? ->
+                whenDone(3000) { r ->
+                    val data = Share.sharePayload(d, r, img) + (if (test) mapOf("test" to true) else emptyMap())
+                    Cloud.share(this, data) { err ->
+                        Toast.makeText(this, err ?: if (test) "🧪 시험으로 팀에 보냈어요" else "📤 팀에 보냈어요", Toast.LENGTH_SHORT).show()
+                        done?.invoke(err)
+                    }
+                }
+            }
+            val cap = CaptureService.instance
+            if (cap != null) cap.snapshot { b ->
+                val img = b?.let { runCatching { Share.encode(it, 0) }.getOrNull() }
+                b?.recycle()
+                send(img)
+            } else send(null)
+        } else done?.invoke(null)
+
+        if (rec) whenDone(20_000) { r ->
+            Cloud.record(Share.recordPayload(d, r, app)) { err ->
+                if (err != null) Toast.makeText(this, "기록 실패: $err", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** 팀 화면의 [시험으로 보내기] */
+    fun testSend(done: (String?) -> Unit) = onAccepted(test = true, done = done)
 
     companion object {
         private const val HEARTBEAT = 1000L      // 변화가 없어도 다시 확인하는 간격

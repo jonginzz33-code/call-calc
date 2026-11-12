@@ -204,6 +204,16 @@ class CaptureService : Service() {
     /** 다음 읽기는 화면이 같아도 OCR 하도록 (표시를 다시 그려야 할 때) */
     fun forgetLast() { lastHash = 0L }
 
+    /** 마지막 화면 사본 (팀에 보낼 사진용). 메인 스레드로 돌려줌. 다 쓰면 recycle */
+    fun snapshot(done: (Bitmap?) -> Unit) {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val h = bg ?: return done(null)
+        h.post {
+            val b = runCatching { lastFrame?.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+            main.post { done(b) }
+        }
+    }
+
     // 마지막으로 받은 화면 한 장. 화면이 그대로면 안드로이드가 새 장을 안 줘서, 이걸로 읽는다
     private var lastFrame: Bitmap? = null
 

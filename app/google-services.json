@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "286793294902",
+    "project_id": "call-calc-578b2",
+    "storage_bucket": "call-calc-578b2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286793294902:android:7605f38857b90353272497",
+        "android_client_info": {
+          "package_name": "com.jongin.callcalc"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286793294902-92u0i63l3fu42bi0ri4mk4rkauj2kfg8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jongin.callcalc",
+            "certificate_hash": "3496080aa265fa02f81fb5c1b9f06aaabfd6f8b7"
+          }
+        },
+        {
+          "client_id": "286793294902-urqamohv84eb6je3cr7quch6fdi3nqb2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCK-ucif3kl_8bjxt8zISOLG0ToHBN3vJ4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286793294902-urqamohv84eb6je3cr7quch6fdi3nqb2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

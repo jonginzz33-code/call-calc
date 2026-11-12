@@ -212,8 +212,13 @@ class Store(context: Context) {
         set(v) = p.edit().putBoolean("showCallOn", v).apply()
 
     var showCheckOn: Boolean
-        get() = p.getBoolean("showCheckOn", true)
+        get() = p.getBoolean("showCheckOn", false)
         set(v) = p.edit().putBoolean("showCheckOn", v).apply()
+
+    /** 톨비 기준 차 (2인 1조로 뒤따라가는 내 차). 0 = 톨비 계산 없음 (혼자) */
+    var tollCar: Int
+        get() = p.getInt("tollCar", 0)
+        set(v) = p.edit().putInt("tollCar", v).apply()
 
     /** 수락 창(상세 화면)이 뜨면 콜 확인 창을 자동으로 띄우기 */
     var autoCheck: Boolean
@@ -257,6 +262,10 @@ class Store(context: Context) {
     )
 
     init {
+        // v0.7.0: [콜 확인] 버튼은 기본 꺼짐 (수락 창이 뜨면 콜 확인 창이 자동으로 뜨니까). 한 번만 끔
+        if (!p.getBoolean("checkOffV070", false)) {
+            p.edit().putBoolean("checkOffV070", true).putBoolean("showCheckOn", false).apply()
+        }
         // v0.6.3: [콜 확인] 처음 위치가 왼쪽 맨 위로 바뀌어서, 저장된 위치를 한 번 지움
         if (!p.getBoolean("checkResetV063", false)) {
             p.edit().putBoolean("checkResetV063", true).putInt("checkX", -1).putInt("checkY", -1).apply()

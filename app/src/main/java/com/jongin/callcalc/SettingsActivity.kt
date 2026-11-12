@@ -73,6 +73,28 @@ class SettingsActivity : AppCompatActivity() {
         })
         root.addView(showBox)
 
+        // 톨비 계산 기준 차 (2인 1조로 뒤따라가는 내 차)
+        val carCard = vbox().apply {
+            background = roundBg(C.PANEL, C.LINE, 2, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = lp().also { it.topMargin = dp(12) }
+        }
+        carCard.addView(text("톨비 계산 (뒤따라가는 내 차)", 18f, bold = true))
+        carCard.addView(text("혼자 할 땐 '없음'. 2인 1조면 따라가는 차를 고르면 그 차 톨비를 빼고 분당 금액을 계산해요.", 14f, C.DIM))
+        val group = android.widget.RadioGroup(this).apply { orientation = android.widget.RadioGroup.VERTICAL }
+        for ((car, name) in CallCheck.CARS) {
+            group.addView(com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
+                id = 9000 + car
+                text = name
+                textSize = 17f
+                setTextColor(C.FG)
+            })
+        }
+        group.check(9000 + store.tollCar)
+        group.setOnCheckedChangeListener { _, id -> store.tollCar = id - 9000; live() }
+        carCard.addView(group)
+        root.addView(carCard)
+
         // 업데이트 확인 (맨 위)
         val upCard = vbox().apply {
             background = roundBg(C.PANEL, C.BTN, 2, 14)

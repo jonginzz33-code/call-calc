@@ -88,7 +88,24 @@ object PermissionGuide {
         },
     )
 
-    fun all(): List<Perm> = listOf(accessibility, installApps, location)
+    private val notifications = Perm(
+        title = "알림 (2인 1조 팀 알림)",
+        why = "팀원이 콜을 수락하면 주소와 화면 사진을 알림으로 받아요.",
+        steps = listOf(
+            "아래 [켜러 가기]를 눌러요",
+            "'허용'을 눌러요",
+        ),
+        note = "허용 창이 안 뜨면: [앱 정보 열기] → 알림 → 켜기",
+        extra = "앱 정보 열기" to { a ->
+            a.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${a.packageName}")))
+        },
+        granted = { Share.notificationsAllowed(it) },
+        open = { a ->
+            if (android.os.Build.VERSION.SDK_INT >= 33) a.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 72)
+        },
+    )
+
+    fun all(): List<Perm> = listOf(accessibility, installApps, location, notifications)
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var watch: Runnable? = null

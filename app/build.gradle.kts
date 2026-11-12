@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 // 버전 이름은 README 맨 끝 '## v…' 에서 읽고, 버전 번호는 빌드 번호로 자동 증가
@@ -57,4 +58,11 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     // 한국어 글자 인식. 모델이 앱 안에 들어 있는(bundled) 버전이라 인터넷이 필요 없음
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    // 서버 (Firebase · 계산기 전용 프로젝트): 구글 로그인, 2인 1조 팀 알림, 수락한 콜 기록
+    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }

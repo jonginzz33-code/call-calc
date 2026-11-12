@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 인터넷: 새 버전 확인·받기(Updater.kt), 그리고 [콜 확인]을 누를 때만 출발지·도착지 이름과 내 위치를 카카오 길찾기에 보냄 -->
+    <!-- 인터넷: 새 버전 확인·받기(Updater.kt), 콜 확인(TMAP 길찾기),
+         그리고 로그인했을 때만 수락한 콜을 서버(Firebase)에 올림 (팀 알림·내 기록) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <!-- 받은 새 버전 설치 -->
@@ -23,6 +24,15 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- 팀 알림의 [TMAP 길안내] -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="tmap" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
         </intent>
     </queries>
 
@@ -54,6 +64,10 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Transparent" />
+
+        <activity android:name=".TeamActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RecordsActivity" android:exported="false" />
+        <activity android:name=".ShareActivity" android:exported="false" />
 
         <activity
             android:name=".SettingsActivity"

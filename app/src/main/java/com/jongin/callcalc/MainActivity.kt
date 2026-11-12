@@ -241,6 +241,11 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(liveBox.margins(this, top = 14))
 
+        // 2인 1조 · 로그인 · 기록
+        root.addView(button("👥 2인 1조 · 기록", outlined = true, big = true) {
+            startActivity(Intent(this, TeamActivity::class.java))
+        }.margins(this, top = 12))
+
         // 앱 종료: 둥근 버튼·표시·화면 캡처·읽기를 모두 멈추고 닫기. 다시 열면 켜짐
         root.addView(button("앱 종료", outlined = true) { exitApp() }.apply {
             setTextColor(C.BAD)
