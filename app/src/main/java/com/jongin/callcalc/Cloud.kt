@@ -154,18 +154,18 @@ object Cloud {
         ), com.google.firebase.firestore.SetOptions.merge())
         ref.get().addOnSuccessListener { d ->
             val before = p.all.filterKeys { it == "banned" || it.startsWith("f_") }
-            val e = p.edit().putBoolean("banned", d.getBoolean("banned") == true)
+            val e = p.edit().putBoolean("banned", d.get("banned") == true)
             @Suppress("UNCHECKED_CAST")
             val f = d.get("features") as? Map<String, Any?> ?: emptyMap()
             for ((k, _) in FEATURES) e.putBoolean("f_$k", if (defaultOn(k)) f[k] != false else f[k] == true)
             e.apply()
             val after = p.all.filterKeys { it == "banned" || it.startsWith("f_") }
             db.collection("config").document("admin").get()
-                .addOnSuccessListener { a -> p.edit().putString("adminUid", a.getString("uid")).putBoolean("adminSet", a.exists()).putBoolean("rulesOld", false).apply() }
+                .addOnSuccessListener { a -> p.edit().putString("adminUid", a.get("uid") as? String).putBoolean("adminSet", a.exists()).putBoolean("rulesOld", false).apply() }
                 .addOnFailureListener { p.edit().putBoolean("rulesOld", true).apply() }
                 .addOnCompleteListener { done?.invoke(before != after) }
             db.collection("config").document("tmap").get()
-                .addOnSuccessListener { k -> p.edit().putString("sharedKey", k.getString("key").orEmpty()).apply() }
+                .addOnSuccessListener { k -> p.edit().putString("sharedKey", (k.get("key") as? String).orEmpty()).apply() }
         }.addOnFailureListener { p.edit().putBoolean("rulesOld", true).apply(); done?.invoke(false) }
         pushUsage(ctx)
     }
@@ -178,8 +178,8 @@ object Cloud {
         val ref = db.collection("config").document("admin")
         ref.get().addOnSuccessListener { a ->
             if (a.exists()) {
-                prefs(ctx).edit().putString("adminUid", a.getString("uid")).putBoolean("adminSet", true).apply()
-                return@addOnSuccessListener done(if (a.getString("uid") == me) null else "이미 다른 관리자가 있어요")
+                prefs(ctx).edit().putString("adminUid", a.get("uid") as? String).putBoolean("adminSet", true).apply()
+                return@addOnSuccessListener done(if ((a.get("uid") as? String) == me) null else "이미 다른 관리자가 있어요")
             }
             ref.set(mapOf("uid" to me, "email" to auth.currentUser?.email))
                 .addOnSuccessListener { prefs(ctx).edit().putString("adminUid", me).putBoolean("adminSet", true).apply(); done(null) }
@@ -380,7 +380,7 @@ object Cloud {
             q?.documentChanges?.forEach { ch ->
                 if (ch.type != DocumentChange.Type.ADDED) return@forEach
                 val d = ch.document
-                if (d.getString("from") == me) return@forEach
+                if ((d.get("from") as? String) == me) return@forEach
                 val seen = p.getStringSet("seen", emptySet())!!
                 if (d.id in seen) return@forEach
                 p.edit().putStringSet("seen", (seen.toList().takeLast(50) + d.id).toSet()).apply()

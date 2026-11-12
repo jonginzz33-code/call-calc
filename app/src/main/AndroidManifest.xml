@@ -5,7 +5,8 @@
     <!-- 인터넷: 새 버전 확인·받기(Updater.kt), 콜 확인(TMAP 길찾기),
          그리고 로그인했을 때만 수락한 콜을 서버(Firebase)에 올림 (팀 알림·내 기록) -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <!-- 인터넷 연결 상태 확인 (Firebase 서버가 꼭 필요로 함. 없으면 로그인하자마자 꺼짐) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 받은 새 버전 설치 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 화면 캡처(접근성으로 글자가 안 읽힐 때만) -->
