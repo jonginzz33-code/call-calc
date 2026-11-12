@@ -119,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         showFormula()
         if (hasResult) render()
         renderLive()
+        renderUsage()
         Updater.resumePending(this)
         checkPermissions()
     }
@@ -164,7 +165,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildUi() {
         val root = vbox(16)
-        scrollPage(root)
+        val scroll = scrollPage(root)
+        // 화면 맨 아래에 늘 붙어 있는 줄: 오늘 TMAP 사용량 (누르면 자세히)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(C.BG)
+        }
+        (scroll.parent as? android.view.ViewGroup)?.removeView(scroll)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(scroll, null)
+        scroll.setPadding(0, 0, 0, 0)
+        outer.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        usageBar = text("", 15f, C.SUB, bold = true).apply {
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setBackgroundColor(C.PANEL)
+            setOnClickListener { showUsage() }
+        }
+        outer.addView(View(this).apply { setBackgroundColor(C.LINE) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
+        outer.addView(usageBar, lp())
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(outer) { v, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        setContentView(outer)
+        renderUsage()
 
         val header = hbox()
         header.addView(text("계산기", 28f, bold = true), lp(0, weight = 1f))
@@ -279,6 +305,39 @@ class MainActivity : AppCompatActivity() {
         root.addView(text("이 앱은 읽고 계산해서 보여 주기만 해요. 콜 수락은 직접 누르세요.", 13f, C.GRAY).margins(this, top = 24))
         showFormula()
         statusView.text = "아직 읽은 화면이 없어요."
+    }
+
+    private var usageBar: TextView? = null
+
+    private fun usageText(n: Int) = String.format(java.util.Locale.US, "%,d", n)
+
+    /** 맨 아래 줄: 오늘 TMAP 사용량 */
+    private fun renderUsage() {
+        val bar = usageBar ?: return
+        val n = CallCheck.todayUsage(this)
+        bar.text = "📡 오늘 TMAP 사용 ${usageText(n)}건 / 10,000   (눌러서 자세히 ›)"
+        bar.setTextColor(if (n > 8000) C.WARN else C.SUB)
+    }
+
+    /** 누르면: 오늘 사용량 자세히 + SK 사이트 열기 */
+    private fun showUsage() {
+        renderUsage()
+        val n = CallCheck.todayUsage(this)
+        val left = (10_000 - n).coerceAtLeast(0)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("오늘 TMAP 사용량")
+            .setMessage(
+                "오늘 쓴 건수: ${usageText(n)}건\n" +
+                    "남은 무료 건수: ${usageText(left)}건 (하루 10,000건)\n\n" +
+                    "• 이 폰에서 직접 센 숫자예요. 자정에 0으로 돌아가요.\n" +
+                    "• 콜 확인 한 번에 보통 4~6건 써요.\n" +
+                    "• 정확한 공식 숫자는 SK오픈API 사이트 → 앱(계산기) → 통계에서 볼 수 있어요."
+            )
+            .setPositiveButton("닫기", null)
+            .setNeutralButton("SK 사이트 열기") { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://openapi.sk.com/"))) }
+            }
+            .show()
     }
 
     /** 실시간 모드 상태와 버튼 */
