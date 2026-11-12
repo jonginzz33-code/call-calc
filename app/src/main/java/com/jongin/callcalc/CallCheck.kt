@@ -215,6 +215,7 @@ object CallCheck {
         val k = today()
         if (p.getString("day", "") != k) p.edit().putString("day", k).putInt("count", 0).apply()
         p.edit().putInt("count", p.getInt("count", 0) + 1).apply()
+        appCtx?.let { Cloud.usageChanged(it) } // 서버엔 1분 뒤 모아서 (콜 확인 속도에 영향 없음)
     }
 
     /** 오늘 이 폰에서 부른 TMAP 횟수 */

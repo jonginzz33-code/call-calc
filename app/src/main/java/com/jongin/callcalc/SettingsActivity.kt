@@ -257,15 +257,22 @@ class SettingsActivity : AppCompatActivity() {
     private fun tmapSheet(root: LinearLayout) {
         root.addView(text("수락 창에서 내 위치 → 출발지 → 도착지 실제 도로 거리·시간과 톨비를 TMAP으로 계산해요.", 15f, C.DIM))
         val keyState = text("", 17f, bold = true).margins(this, top = 10) as android.widget.TextView
-        fun showKeyState() { keyState.text = "TMAP 앱 키 " + if (store.tmapKey.isBlank()) "❌ 없음" else "✅ 들어 있음" }
+        fun showKeyState() {
+            keyState.text = "TMAP 앱 키 " + when {
+                store.ownTmapKey.isNotBlank() -> "✅ 내 키 들어 있음"
+                store.tmapKey.isNotBlank() -> "✅ 관리자 키 사용 중"
+                else -> "❌ 없음"
+            }
+        }
         showKeyState()
         root.addView(keyState)
-        root.addView(editText("TMAP 앱 키 붙여 넣기 (SK오픈API → 앱 → 앱키)", store.tmapKey).apply {
+        root.addView(text("관리자가 키를 넣어 두었으면 비워 둬도 돼요 (로그인 필요).", 13f, C.DIM))
+        root.addView(editText("내 TMAP 앱 키 (없으면 비워 두기)", store.ownTmapKey).apply {
             addTextChangedListener(afterChange { store.tmapKey = it; showKeyState() })
         })
-        val used = CallCheck.todayUsage(this)
-        root.addView(text("오늘 TMAP 사용: ${String.format(java.util.Locale.US, "%,d", used)}건 / 무료 10,000건", 16f, if (used > 8000) C.WARN else C.SUB).margins(this, top = 10))
-        root.addView(text("이 폰에서 센 수예요. 공식 숫자는 SK오픈API → 앱(계산기) → 통계.", 13f, C.DIM))
+        if (Cloud.canSeeUsage(this)) {
+            root.addView(text("오늘 TMAP 사용량(모든 사람 합계)은 첫 화면 맨 아래 줄을 누르면 보여요.", 13f, C.DIM).margins(this, top = 10))
+        }
     }
 
     private fun statsSheet(root: LinearLayout) {

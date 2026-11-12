@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         store = Store(this)
         buildFrame()
+        showCrash()
         // 갤러리 공유로 들어오면 시험 화면으로
         forwardShare(intent)
         checkUpdateOnce()
@@ -50,11 +51,36 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         BackroomService.listeners += refreshB
         // B 뒷방이 켜져 있어야 하는데 꺼져 있으면 (재부팅 등) 다시 켬
-        if (store.running && store.mode == "B" && BackroomService.instance == null && canRunB()) BackroomService.start(this)
+        if (store.running && store.mode == "B" && BackroomService.instance == null && canRunB()) runCatching { BackroomService.start(this) }
         render()
-        syncCloud()
-        Updater.resumePending(this)
-        checkPermissions()
+        runCatching { syncCloud() }
+        runCatching { Updater.resumePending(this) }
+        runCatching { checkPermissions() }
+        loadUsage()
+    }
+
+    /** 지난번에 앱이 꺼졌으면 이유를 보여 줌 (사진 찍어 보내면 바로 고칠 수 있게) */
+    private fun showCrash() {
+        val f = App.crashFile(this)
+        if (!f.exists()) return
+        val t = runCatching { f.readText() }.getOrDefault("")
+        f.delete()
+        if (t.isBlank()) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("⚠ 지난번에 앱이 꺼졌어요")
+            .setMessage("이 화면을 찍어서 보내 주시면 고칠게요.\n\n" + t.take(1500))
+            .setPositiveButton("확인", null)
+            .setNeutralButton("복사") { _, _ ->
+                getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("오류", t))
+            }
+            .show()
+    }
+
+    /** 맨 아래 줄: 모든 사람 TMAP 합계 (볼 수 있는 사람만). 서버는 열 때 한 번만 읽음 */
+    private var usageMap: Map<String, Int>? = null
+    private fun loadUsage() {
+        if (!Cloud.canSeeUsage(this)) return
+        runCatching { Cloud.loadUsage(this) { m -> if (m != null) { usageMap = m; renderUsage() } } }
     }
 
     override fun onPause() {
@@ -66,8 +92,10 @@ class MainActivity : AppCompatActivity() {
     private fun syncCloud() {
         if (!Cloud.signedIn) return
         Cloud.sync(this, PermissionGuide.snapshot(this), store.mode, versionName()) { changed ->
-            if (changed) { CallReaderService.instance?.settingsChanged(); render() }
-            else if (Cloud.isAdmin(this) || Cloud.adminMissing(this)) render()
+            if (isFinishing) return@sync
+            if (changed) CallReaderService.instance?.settingsChanged()
+            render()
+            loadUsage()
         }
     }
 
@@ -97,6 +125,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun render() {
+        try {
+            renderInner()
+        } catch (e: Exception) {
+            // 그리다 문제가 생겨도 앱은 꺼지지 않게
+            body.removeAllViews()
+            body.addView(text("⚠ 화면을 그리다 문제가 생겼어요", 20f, C.WARN, bold = true))
+            body.addView(text(android.util.Log.getStackTraceString(e).lines().take(12).joinToString("\n"), 12f, C.SUB).margins(this, top = 8))
+            body.addView(button("설정 열기", outlined = true) { startActivity(Intent(this, SettingsActivity::class.java)) }.margins(this, top = 12))
+            body.addView(button("앱 종료", outlined = true) { exitApp() }.margins(this, top = 8))
+        }
+    }
+
+    private fun renderInner() {
         body.removeAllViews()
         renderUsage()
 
@@ -325,7 +366,7 @@ class MainActivity : AppCompatActivity() {
             if (!canRunB()) { toast("B 뒷방은 로그인하고 팀을 맺어야 해요"); startActivity(Intent(this, TeamActivity::class.java)); return }
             store.running = true
             CallReaderService.instance?.pause()
-            BackroomService.start(this)
+            runCatching { BackroomService.start(this) }.onFailure { toast("대기 시작 실패: ${it.message}") }
             toast("뒷방 대기를 시작했어요")
         } else {
             store.running = true
@@ -417,24 +458,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderUsage() {
         val bar = usageBar ?: return
-        val n = CallCheck.todayUsage(this)
-        bar.text = "📡 오늘 TMAP 사용 ${usageText(n)}건 / 10,000   (눌러서 자세히 ›)"
+        if (!Cloud.canSeeUsage(this)) { bar.visibility = View.GONE; return }
+        val n = usageMap?.values?.sum() ?: Cloud.cachedTotal(this).takeIf { it >= 0 } ?: CallCheck.todayUsage(this)
+        bar.text = "📡 오늘 TMAP 합계 ${usageText(n)}건 / 10,000   (눌러서 사람별 ›)"
         bar.setTextColor(if (n > 8000) C.WARN else C.SUB)
-        bar.visibility = if (store.mode == "B") View.GONE else View.VISIBLE
+        bar.visibility = View.VISIBLE
     }
 
     private fun showUsage() {
         renderUsage()
-        val n = CallCheck.todayUsage(this)
+        val m = usageMap.orEmpty()
+        val n = m.values.sum().takeIf { m.isNotEmpty() } ?: CallCheck.todayUsage(this)
         val left = (10_000 - n).coerceAtLeast(0)
+        val people = if (m.isEmpty()) "아직 서버에서 못 읽었어요" else m.entries.sortedByDescending { it.value }.joinToString("\n") { "• ${it.key}: ${usageText(it.value)}건" }
         MaterialAlertDialogBuilder(this)
-            .setTitle("오늘 TMAP 사용량")
+            .setTitle("오늘 TMAP 사용량 (모든 사람)")
             .setMessage(
-                "오늘 쓴 건수: ${usageText(n)}건\n" +
-                    "남은 무료 건수: ${usageText(left)}건 (하루 10,000건)\n\n" +
-                    "• 이 폰에서 직접 센 숫자예요. 자정에 0으로 돌아가요.\n" +
-                    "• 콜 확인 한 번에 보통 4~6건 써요.\n" +
-                    "• 정확한 공식 숫자는 SK오픈API 사이트 → 앱(계산기) → 통계에서 볼 수 있어요."
+                "합계: ${usageText(n)}건 · 남은 무료 ${usageText(left)}건 (하루 10,000건)\n\n" +
+                    people + "\n\n" +
+                    "• 각 폰이 1분에 한 번 모아서 올려서 조금 늦을 수 있어요.\n" +
+                    "• 로그인한 사람만 들어가요.\n" +
+                    "• 정확한 공식 숫자는 SK오픈API 사이트 → 앱(계산기) → 통계."
             )
             .setPositiveButton("닫기", null)
             .setNeutralButton("SK 사이트 열기") { _, _ ->

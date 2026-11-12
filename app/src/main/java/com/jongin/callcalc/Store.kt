@@ -203,9 +203,13 @@ class Store(context: Context) {
 
     // ───── 콜 확인 (TMAP 길찾기) ─────
     /** SK오픈API 에서 받은 TMAP 앱 키 (폰 안에만 저장) */
+    /** 쓸 TMAP 키: 내가 넣은 키, 없으면 관리자가 넣은 키 */
     var tmapKey: String
-        get() = p.getString("tmapKey", "")!!.trim()
+        get() = ownTmapKey.ifBlank { Cloud.sharedKey(ctx) }
         set(v) = p.edit().putString("tmapKey", v.trim()).apply()
+
+    /** 이 폰에 직접 넣은 키 (설정 칸) */
+    val ownTmapKey: String get() = runCatching { p.getString("tmapKey", "")!!.trim() }.getOrDefault("")
 
     /** 콜 앱 위에 [콜 ON] / [콜 확인] 버튼 띄우기 (설정 맨 위 체크칸) */
     var showCallOn: Boolean

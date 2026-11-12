@@ -42,7 +42,10 @@ class AdminActivity : AppCompatActivity() {
     private fun load() {
         top()
         root.addView(text("불러오는 중…", 15f, C.SUB).margins(this, top = 10))
-        if (tab == 0) Cloud.loadPeople { list, err -> top(); if (list == null) err(err) else people(list) }
+        if (tab == 0) Cloud.usageByUid { u ->
+            usage = u
+            Cloud.loadPeople { list, err -> top(); if (list == null) err(err) else people(list) }
+        }
         else Cloud.loadTeams { list, err -> top(); if (list == null) err(err) else teams(list) }
     }
 
@@ -53,8 +56,11 @@ class AdminActivity : AppCompatActivity() {
 
     // ───────── 사람 ─────────
 
+    private var usage: Map<String, Int> = emptyMap()
+
     private fun people(list: List<Cloud.Person>) {
-        root.addView(text("${list.size}명 · 누르면 기능 허락·접근 금지·기록", 14f, C.DIM).margins(this, top = 8))
+        keyCard()
+        root.addView(text("${list.size}명 · 누르면 기능 허락·접근 금지·기록", 14f, C.DIM).margins(this, top = 12))
         for (p in list) {
             val card = vbox().apply {
                 background = roundBg(C.PANEL, if (p.banned) C.BAD else C.LINE, 2, 14)
@@ -67,9 +73,10 @@ class AdminActivity : AppCompatActivity() {
             head.addView(text(if (p.data["mode"] == "B") "B 뒷방" else "A 오더", 14f, C.ACCENT, bold = true))
             card.addView(head)
             card.addView(text(p.email, 13f, C.DIM))
-            card.addView(text("v${p.data["version"] ?: "?"} · 마지막 접속 ${ago(p.lastSeen)}", 14f, C.SUB).margins(this, top = 4))
+            card.addView(text("v${p.data["version"] ?: "?"} · 마지막 접속 ${ago(p.lastSeen)} · 오늘 TMAP ${usage[p.uid] ?: 0}건", 14f, C.SUB).margins(this, top = 4))
             card.addView(text(p.perms.entries.joinToString("  ") { (k, v) -> (if (v == true) "✅" else "❌") + k }, 14f, C.SUB).margins(this, top = 2))
-            val off = Cloud.FEATURES.filter { p.features[it.first] == false }.map { it.second }
+            val off = Cloud.FEATURES.filter { Cloud.defaultOn(it.first) && p.features[it.first] == false }.map { it.second }
+            if (p.features["tmapView"] == true) card.addView(text("📡 TMAP 사용량 같이 보기", 14f, C.ACCENT).margins(this, top = 2))
             if (off.isNotEmpty()) card.addView(text("막은 기능: " + off.joinToString(", "), 14f, C.WARN).margins(this, top = 2))
             root.addView(card)
         }
@@ -87,7 +94,7 @@ class AdminActivity : AppCompatActivity() {
                 val row = hbox().apply { gravity = Gravity.CENTER_VERTICAL; layoutParams = lp().also { it.topMargin = dp(6) } }
                 row.addView(text(label, 17f), lp(0, weight = 1f))
                 row.addView(MaterialSwitch(this).apply {
-                    isChecked = f[k] != false
+                    isChecked = if (Cloud.defaultOn(k)) f[k] != false else f[k] == true
                     setOnCheckedChangeListener { _, on ->
                         f[k] = on
                         Cloud.setPerson(p.uid, mapOf("features" to f)) { e -> if (e != null) toast(e) }
@@ -113,6 +120,34 @@ class AdminActivity : AppCompatActivity() {
                 }.apply { setTextColor(C.BAD) }.margins(this, top = 8))
             }
         }
+    }
+
+    /** 🔑 TMAP 키 (모두 같이 쓰기). 키 글자는 관리자 화면에서만 보임 */
+    private fun keyCard() {
+        val card = vbox().apply {
+            background = roundBg(C.PANEL, C.WARN, 2, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = lp().also { it.topMargin = dp(12) }
+        }
+        card.addView(text("🔑 TMAP 키 (모두 같이 쓰기)", 18f, bold = true))
+        card.addView(text("여기 넣으면 로그인한 사람들은 키를 따로 안 넣어도 콜 확인이 돼요. 다른 사람 폰엔 키 글자가 안 보여요.", 13f, C.DIM))
+        val e = android.widget.EditText(this).apply {
+            hint = "TMAP 앱 키 붙여 넣기"
+            setText(getSharedPreferences("cloud", MODE_PRIVATE).getString("sharedKey", ""))
+            setTextColor(C.FG); setHintTextColor(C.GRAY); textSize = 16f; isSingleLine = true
+        }
+        card.addView(e.margins(this, top = 6))
+        val row = hbox().apply { margins(this@AdminActivity, top = 6) }
+        row.addView(button("저장") {
+            val k = e.text.toString().trim()
+            Cloud.setSharedKey(k) { err ->
+                if (err == null) getSharedPreferences("cloud", MODE_PRIVATE).edit().putString("sharedKey", k).apply()
+                toast(err ?: if (k.isEmpty()) "키를 지웠어요" else "저장했어요. 다른 사람은 앱을 열 때 받아요")
+            }
+        }, lp(0, weight = 1f))
+        row.addView(button("내 설정 키 가져오기", outlined = true) { e.setText(Store(this).ownTmapKey) }, lp(0, weight = 1f).also { it.marginStart = dp(8) })
+        card.addView(row)
+        root.addView(card)
     }
 
     // ───────── 팀 ─────────

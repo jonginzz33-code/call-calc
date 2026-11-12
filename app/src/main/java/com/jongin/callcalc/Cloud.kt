@@ -51,14 +51,87 @@ object Cloud {
     // ───────── 관리자가 정하는 것 (이 폰에 저장해 두고 씀) ─────────
 
     /** 기능 이름: A 오더, B 뒷방, check 콜 확인, record 기록, team 팀 */
-    val FEATURES = listOf("A" to "A 오더", "B" to "B 뒷방", "check" to "콜 확인 (TMAP)", "record" to "콜 기록", "team" to "팀 (2인 1조)")
+    val FEATURES = listOf("A" to "A 오더", "B" to "B 뒷방", "check" to "콜 확인 (TMAP)", "record" to "콜 기록", "team" to "팀 (2인 1조)",
+        "tmapView" to "TMAP 사용량 보기 (관리자와 같이)")
+
+    /** 기본이 꺼짐인 기능 (관리자가 켜 줘야 함) */
+    private val OFF_BY_DEFAULT = setOf("tmapView")
+    fun defaultOn(feature: String) = feature !in OFF_BY_DEFAULT
 
     fun banned(ctx: Context) = prefs(ctx).getBoolean("banned", false)
 
     /** 관리자가 막지 않았으면 true (로그인 안 했으면 다 허용) */
     fun allowed(ctx: Context, feature: String): Boolean {
         val p = prefs(ctx)
-        return !p.getBoolean("banned", false) && p.getBoolean("f_$feature", true)
+        return !p.getBoolean("banned", false) && p.getBoolean("f_$feature", defaultOn(feature))
+    }
+
+    /** 맨 아래 TMAP 사용량 줄을 볼 수 있는 사람: 관리자 + 관리자가 허용한 사람 */
+    fun canSeeUsage(ctx: Context) = signedIn && (isAdmin(ctx) || allowed(ctx, "tmapView"))
+
+    /** 서버 규칙이 예전 것이라 읽기가 막힘 (관리자 등록 등이 안 됨) */
+    fun rulesOld(ctx: Context) = prefs(ctx).getBoolean("rulesOld", false)
+
+    /** 관리자가 넣은 TMAP 키 (내 키가 없을 때 씀). 막힌 사람은 못 씀 */
+    fun sharedKey(ctx: Context): String =
+        if (allowed(ctx, "check")) prefs(ctx).getString("sharedKey", "").orEmpty() else ""
+
+    fun setSharedKey(key: String, done: (String?) -> Unit) {
+        db.collection("config").document("tmap").set(mapOf("key" to key.trim(), "at" to System.currentTimeMillis()))
+            .addOnSuccessListener { done(null) }.addOnFailureListener { done(failText(it)) }
+    }
+
+    // ───────── TMAP 사용량 (모든 사람 합계) ─────────
+    // 콜 확인할 때는 서버에 안 보냄. 폰 안 숫자만 올리고, 1분에 한 번 뒤에서 모아서 올림 → 속도 영향 없음
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var pushPending = false
+
+    /** CallCheck 가 TMAP 을 부를 때마다 (아무 스레드). 1분 뒤 한 번만 올림 */
+    fun usageChanged(ctx: Context) {
+        if (pushPending) return
+        pushPending = true
+        main.postDelayed({ pushPending = false; runCatching { pushUsage(ctx) } }, 60_000)
+    }
+
+    private fun today() = java.time.LocalDate.now().toString()
+
+    fun pushUsage(ctx: Context) {
+        val me = uid ?: return
+        val n = CallCheck.todayUsage(ctx)
+        if (n <= 0) return
+        db.collection("usage").document(today())
+            .set(mapOf(me to mapOf("name" to displayName, "count" to n)), com.google.firebase.firestore.SetOptions.merge())
+    }
+
+    /** 오늘 사람별 사용량 (이름 → 건수). 내 건 이 폰 숫자로 (더 최신) */
+    fun loadUsage(ctx: Context, done: (Map<String, Int>?) -> Unit) {
+        val me = uid
+        db.collection("usage").document(today()).get()
+            .addOnSuccessListener { d ->
+                val out = linkedMapOf<String, Int>()
+                d.data.orEmpty().forEach { (u, v) ->
+                    @Suppress("UNCHECKED_CAST") val m = v as? Map<String, Any?> ?: return@forEach
+                    val name = m["name"] as? String ?: u.take(6)
+                    out[if (u == me) "$name (나)" else name] = if (u == me) maxOf(CallCheck.todayUsage(ctx), (m["count"] as? Number)?.toInt() ?: 0) else (m["count"] as? Number)?.toInt() ?: 0
+                }
+                if (me != null && out.keys.none { it.endsWith("(나)") } && CallCheck.todayUsage(ctx) > 0) out["$displayName (나)"] = CallCheck.todayUsage(ctx)
+                prefs(ctx).edit().putInt("usageTotal", out.values.sum()).apply()
+                done(out)
+            }
+            .addOnFailureListener { done(null) }
+    }
+
+    /** 마지막으로 읽은 합계 (바로 보여 주기용) */
+    fun cachedTotal(ctx: Context) = prefs(ctx).getInt("usageTotal", -1)
+
+    /** 관리자 화면: 오늘 uid → 건수 */
+    fun usageByUid(done: (Map<String, Int>) -> Unit) {
+        db.collection("usage").document(today()).get()
+            .addOnSuccessListener { d ->
+                done(d.data.orEmpty().mapNotNull { (u, v) -> ((v as? Map<*, *>)?.get("count") as? Number)?.toInt()?.let { u to it } }.toMap())
+            }
+            .addOnFailureListener { done(emptyMap()) }
     }
 
     fun isAdmin(ctx: Context) = signedIn && prefs(ctx).getString("adminUid", null) == uid
@@ -84,23 +157,37 @@ object Cloud {
             val e = p.edit().putBoolean("banned", d.getBoolean("banned") == true)
             @Suppress("UNCHECKED_CAST")
             val f = d.get("features") as? Map<String, Any?> ?: emptyMap()
-            for ((k, _) in FEATURES) e.putBoolean("f_$k", f[k] != false)
+            for ((k, _) in FEATURES) e.putBoolean("f_$k", if (defaultOn(k)) f[k] != false else f[k] == true)
             e.apply()
             val after = p.all.filterKeys { it == "banned" || it.startsWith("f_") }
             db.collection("config").document("admin").get()
-                .addOnSuccessListener { a -> p.edit().putString("adminUid", a.getString("uid")).putBoolean("adminSet", a.exists()).apply() }
+                .addOnSuccessListener { a -> p.edit().putString("adminUid", a.getString("uid")).putBoolean("adminSet", a.exists()).putBoolean("rulesOld", false).apply() }
+                .addOnFailureListener { p.edit().putBoolean("rulesOld", true).apply() }
                 .addOnCompleteListener { done?.invoke(before != after) }
-        }
+            db.collection("config").document("tmap").get()
+                .addOnSuccessListener { k -> p.edit().putString("sharedKey", k.getString("key").orEmpty()).apply() }
+        }.addOnFailureListener { p.edit().putBoolean("rulesOld", true).apply(); done?.invoke(false) }
+        pushUsage(ctx)
     }
 
-    /** 관리자가 아직 없음 (처음 한 번 [관리자로 등록]) */
-    fun adminMissing(ctx: Context) = !prefs(ctx).getBoolean("adminSet", true)
+    /** 관리자 등록 버튼을 보여 줄지: 관리자가 없다고 확인됐거나, 아직 확인 못 함 */
+    fun adminMissing(ctx: Context) = signedIn && !isAdmin(ctx) && !prefs(ctx).getBoolean("adminSet", false)
 
     fun claimAdmin(ctx: Context, done: (String?) -> Unit) {
         val me = uid ?: return done("먼저 로그인해 주세요")
-        db.collection("config").document("admin").set(mapOf("uid" to me, "email" to auth.currentUser?.email))
-            .addOnSuccessListener { prefs(ctx).edit().putString("adminUid", me).putBoolean("adminSet", true).apply(); done(null) }
-            .addOnFailureListener { done("이미 관리자가 있어요") }
+        val ref = db.collection("config").document("admin")
+        ref.get().addOnSuccessListener { a ->
+            if (a.exists()) {
+                prefs(ctx).edit().putString("adminUid", a.getString("uid")).putBoolean("adminSet", true).apply()
+                return@addOnSuccessListener done(if (a.getString("uid") == me) null else "이미 다른 관리자가 있어요")
+            }
+            ref.set(mapOf("uid" to me, "email" to auth.currentUser?.email))
+                .addOnSuccessListener { prefs(ctx).edit().putString("adminUid", me).putBoolean("adminSet", true).apply(); done(null) }
+                .addOnFailureListener { done(failText(it)) }
+        }.addOnFailureListener {
+            prefs(ctx).edit().putBoolean("rulesOld", true).apply()
+            done("서버 규칙이 예전 것이에요. Firebase → Firestore → 규칙에 새 규칙을 붙여 넣고 [게시]해 주세요")
+        }
     }
 
     // ───────── 관리자 화면용 ─────────

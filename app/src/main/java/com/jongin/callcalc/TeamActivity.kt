@@ -26,6 +26,9 @@ class TeamActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::root.isInitialized) render()
+        if (Cloud.signedIn) runCatching {
+            Cloud.sync(this, PermissionGuide.snapshot(this), Store(this).mode, BuildConfig.VERSION_NAME) { if (!isFinishing) render() }
+        }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
@@ -62,6 +65,9 @@ class TeamActivity : AppCompatActivity() {
             setPadding(0, dp(8), 0, 0)
             setOnClickListener { Cloud.signOut(this@TeamActivity); render() }
         })
+        if (Cloud.rulesOld(this)) {
+            login.addView(text("⚠ 서버 규칙이 예전 것이에요. Firebase → Firestore Database → 규칙에 새 규칙을 붙여 넣고 [게시]해 주세요. (관리자 등록·기록이 안 돼요)", 14f, C.WARN, bold = true).margins(this, top = 8))
+        }
         if (Cloud.adminMissing(this)) {
             login.addView(button("🛡 관리자로 등록 (처음 한 번, 사장님만)", outlined = true) {
                 Cloud.claimAdmin(this) { err -> toast(err ?: "관리자로 등록했어요. 첫 화면 위에 [🛡 관리자]가 생겨요"); render() }

@@ -17,6 +17,25 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    function canSeeUsage() {
+      return isAdmin() || (signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('features', {}).get('tmapView', false) == true);
+    }
+
+    // 관리자가 넣은 TMAP 키: 로그인한 사람(막히지 않은)만 읽기, 관리자만 쓰기
+    match /config/tmap {
+      allow read: if signedIn() && notBanned();
+      allow write: if isAdmin();
+    }
+
+    // 오늘 TMAP 사용량: 각자 자기 칸만 쓰기, 관리자와 허용된 사람만 읽기
+    match /usage/{day} {
+      allow read: if canSeeUsage();
+      allow create: if signedIn() && request.resource.data.keys().hasOnly([request.auth.uid]);
+      allow update: if signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid]);
+      allow delete: if isAdmin();
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow create: if signedIn() && request.auth.uid == uid

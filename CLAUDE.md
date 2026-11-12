@@ -10,11 +10,12 @@
 - 앱 자동 업데이트(`Updater.kt`)가 릴리스를 보고 업데이트함. 인터넷은 업데이트·TMAP·서버에만 씀.
 - 서버(v0.7.0, 사용자 승인): Firebase 계산기 전용 프로젝트 `call-calc-578b2` (`Cloud.kt`, 규칙은 `firestore.rules` → 콘솔에 붙여 넣기). 로그인했을 때만, **수락까지 한 콜만** 올림 (수락 창 보기·계산만 한 콜은 안 올림). 팀 알림(`teams/{코드}/shares`, 정확한 주소+화면 사진, 하루 뒤 삭제)과 내 기록(`users/{uid}/calls`, 주소는 시·구까지). 다른 앱(낚시·화장실) 프로젝트와 섞지 않음.
 - v0.8.0: 모드 A 오더(`CallReaderService`)/B 뒷방(`BackroomService`, 접근성 없이 팀 알림만, 화면 켜기+알람 소리). `Store.running`+`mode`, 앱을 열어도 자동 시작 안 함. 관리자(`AdminActivity`)는 `config/admin` 문서의 uid (처음 한 번 [관리자로 등록]), 기능 허락·접근 금지는 `users/{uid}`의 features·banned → `Cloud.allowed()`. 설정은 주제 목록 + 바텀시트(`Ui.sheet`).
+- v0.8.1: TMAP 사용량은 `usage/{날짜}` 문서에 각자 자기 칸(1분 모아 올림, `Cloud.usageChanged`) → 관리자·`tmapView` 허용자만 맨 아래 줄. 관리자 키는 `config/tmap` → `Store.tmapKey`(내 키 없으면). 앱 꺼짐 기록 `App.kt` → 첫 화면에서 보여 줌.
 - 수락 감지: 사용자가 [수락]을 누른 접근성 클릭 이벤트(`isAcceptClick`). 수락 후 화면 사진을 받으면 성공/실패 확인을 추가할 것.
 - 새 권한이 필요하면 `PermissionGuide.all()`에 추가: 앱을 켤 때 꺼진 권한을 바로 안내하고 [켜러 가기]로 설정 화면을 연다 (사용자 요청).
   - v0.2 접근성: 사이드로드 앱은 안드로이드 13+에서 '제한된 설정 허용'(앱 정보 → ⋮)부터 해야 켜짐 → 안내 단계에 넣을 것.
 - 자동 터치·자동 수락·캡처 차단 우회는 넣지 않음.
 - 실시간 구조: `CallReaderService`(접근성)가 읽기+표시(`Overlay`, TYPE_ACCESSIBILITY_OVERLAY)를 모두 맡음 → '다른 앱 위에 표시' 권한 불필요. 접근성으로 못 읽으면 `CaptureService`(MediaProjection)+OCR.
 - 아직 안 한 것: 고정 위치 방식(설명서 4-4 보조).
-- [콜 확인]은 TMAP(SK오픈API) 장소검색 + 자동차 경로안내 (`CallCheck.kt`, 키는 앱 설정에만 저장). 카카오 API는 쓰지 않음.
+- [콜 확인]은 TMAP(SK오픈API) 장소검색 + 자동차 경로안내 (`CallCheck.kt`, 키는 앱 설정 또는 관리자 공유 키). 카카오 API는 쓰지 않음.
 - 앱 이름은 "계산기". 패키지 이름(com.jongin.callcalc)·저장소 이름(call-calc)·APK 이름(call-calc.apk)은 자동 업데이트와 접근성 설정이 끊기지 않게 그대로 둠.
