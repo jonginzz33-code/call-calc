@@ -116,14 +116,24 @@ object DetailParser {
     private val stopWords = listOf("닫기", "콜 수락하기", "수락하기", "콜수락하기")
 
     /** 글자 인식이 "출발 선부동 선부3동주민센터"처럼 붙여 읽으면 "출발" 칸과 주소 칸으로 나눈다 */
-    private fun splitLabels(items: List<TextItem>): List<TextItem> = items.flatMap { t ->
-        // "출발 논현동…" 또는 띄어쓰기 없이 "출발논현동…"으로 붙어 읽혀도 나눔
-        val m = Regex("""^\s*(출\s?발|도\s?착|이\s?동)\s*(\S.*)$""").find(t.text) ?: return@flatMap listOf(t)
+    private fun splitLabels(all: List<TextItem>): List<TextItem> {
+        // 글자 칸(출발·도착·이동) 자리: 혼자 읽힌 글자 칸의 왼쪽, 없으면 수락 창 버튼들 중 가장 왼쪽
+        val labelLeft = all.filter { it.text.replace(" ", "") in setOf("출발", "도착", "이동") }.minOfOrNull { it.left }
+            ?: all.filter { it.text.replace(" ", "") in setOf("닫기", "현금", "카드", "실수익") }.minOfOrNull { it.left }
+        val width = (all.maxOfOrNull { it.right } ?: 0).coerceAtLeast(1)
+        return all.flatMap { t -> splitOne(t, labelLeft, width) }
+    }
+
+    private fun splitOne(t: TextItem, labelLeft: Int?, width: Int): List<TextItem> {
+        // "출발 논현동…" 또는 띄어쓰기 없이 "출발논현동…"으로 붙어 읽혀도 나눔.
+        // 단, 글자 칸 자리에서 시작하는 줄만 ("포천시 / 이동면 장암리" 같은 주소 줄은 그대로)
+        val m = Regex("""^\s*(출\s?발|도\s?착|이\s?동)\s*(\S.*)$""").find(t.text) ?: return listOf(t)
+        if (labelLeft != null && t.left > labelLeft + width * 6 / 100) return listOf(t)
         val label = m.groupValues[1].replace(" ", "")
         val rest = m.groupValues[2]
         val total = t.text.trim().length.coerceAtLeast(1)
         val cut = t.left + (t.right - t.left) * label.length / total
-        listOf(
+        return listOf(
             TextItem(label, t.left, t.top, cut - 1, t.bottom),
             TextItem(rest, cut, t.top, t.right, t.bottom),
         )
@@ -133,7 +143,10 @@ object DetailParser {
         val items = splitLabels(raw.filter { it.text.isNotBlank() })
         if (items.none { it.text.replace(" ", "").contains("수락") }) return null
         fun label(name: String) = items.filter { it.text.replace(" ", "") == name }.minByOrNull { it.left }
-        val start = label("출발") ?: return parseStacked(items)
+        // 출발 글자는 금액(가장 큰 숫자)보다 아래 것 (지도 위 "출발" 핀을 잘못 잡지 않게)
+        val priceItem = items.filter { Extract.money(it.text) != null }.maxByOrNull { it.height }
+        val start = items.filter { it.text.replace(" ", "") == "출발" && (priceItem == null || it.top > priceItem.top) }.minByOrNull { it.left }
+            ?: label("출발") ?: return parseStacked(items)
         // 도착 글자는 출발 아래에 있는 것만 (지도 위 "도착" 핀을 잘못 잡지 않게).
         // 글자 인식이 도착을 잘못 읽으면(도작 등) "약 ○분 운행" 줄 아래를 도착으로
         val rideLine = items.filter { rideRe.containsMatchIn(it.text) && it.top > start.top }.minByOrNull { it.top }

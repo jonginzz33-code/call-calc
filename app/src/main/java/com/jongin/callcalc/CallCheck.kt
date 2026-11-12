@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * 보내는 것: 출발지·도착지 이름, 내 위치 좌표뿐 (금액 등은 보내지 않음)
  */
 object CallCheck {
-    data class Point(val x: Double, val y: Double, val name: String, val dong: String? = null) // x 경도, y 위도, dong = 찾은 곳의 동
+    data class Point(val x: Double, val y: Double, val name: String, val dong: String? = null, val approx: Boolean = false) // approx = 건물을 못 찾아 동 중심, x 경도, y 위도, dong = 찾은 곳의 동
 
     /** 한 구간. estimated = true 면 추정값 */
     data class Leg(val km: Double?, val min: Int?, val estimated: Boolean, val note: String? = null, val toll: Int = 0)
@@ -194,7 +194,11 @@ object CallCheck {
             } catch (e: Exception) { /* 시간 초과는 다음으로 */ }
         }
         problem?.let { throw it }
-        for (q in qs.drop(2)) searchOne(q, key, near)?.let { return it }
+        // 점점 짧게. 건물 이름이 있었는데 동 이름만 남은 검색어로 찾은 건 "대략" 표시
+        val hadBuilding = !DetailParser.isAreaOnly(place)
+        for (q in qs.drop(2)) searchOne(q, key, near)?.let {
+            return if (hadBuilding && DetailParser.isAreaOnly(q)) it.copy(approx = true) else it
+        }
         return null
     }
 

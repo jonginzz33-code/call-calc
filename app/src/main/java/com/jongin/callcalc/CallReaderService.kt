@@ -339,6 +339,8 @@ class CallReaderService : AccessibilityService() {
                     // 수락 창이면 계산, 콜 목록이 확실히 보일 때만 콜 확인 창 닫기
                     // (못 읽은 건 닫힌 게 아닐 수 있음 → 그대로 둠. 다른 앱으로 가면 따로 닫힘)
                     if (capDetail != null) prefetch(capDetail) else if (rows.isNotEmpty()) leftDetail()
+                    // 방금 수락 창을 전체 화면으로 읽었으면 다음에도 처음부터 전체로 (두 번 읽지 않게)
+                    if (capDetail != null && full) fullOnce = true
                     val manual = curPkg?.let { store.region(it) } != null
                     if (rows.isEmpty() && capDetail == null && !full && (manual || listTop != null)) {
                         // 잘라 읽어서 못 찾았을 수 있음 → 기다리지 않고 바로 화면 전체로 한 번 더
@@ -620,7 +622,11 @@ class CallReaderService : AccessibilityService() {
             if (DetailParser.isAreaOnly(r.detail.origin)) "출발" else null,
             if (DetailParser.isAreaOnly(r.detail.destination)) "도착" else null,
         ).takeIf { it.isNotEmpty() }?.let { "⚠ ${it.joinToString("·")}이 동 이름만 있어서 위치가 대략이에요" }
-        val warn = if (!doneWarn) null else (listOfNotNull(areaOnly, r.pickup?.note, r.ride?.note))
+        val approx = listOfNotNull(
+            if (r.originPt?.approx == true) "출발" else null,
+            if (r.destPt?.approx == true) "도착" else null,
+        ).takeIf { it.isNotEmpty() }?.let { "⚠ ${it.joinToString("·")} 건물을 못 찾아 동 중심으로 계산" }
+        val warn = if (!doneWarn) null else (listOfNotNull(areaOnly, approx, r.pickup?.note, r.ride?.note))
             .map { it.replace(Regex("경유지 있음[^·]*·?\\s*"), "").trim() }
             .filter { it.isNotBlank() }.distinct().joinToString(" · ").ifEmpty { null }
         overlay.showCheckCard(Overlay.CheckCard(

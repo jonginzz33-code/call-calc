@@ -227,4 +227,27 @@ class OrderScreenTest {
         assertEquals("포천시 선단동 지역사회전환시설라온", d.destination.replace("도작 ", ""))
         assertEquals(58.0, d.rideMin)
     }
+
+    @Test fun idongMyeonIsNotALabel() {
+        val items = listOf(
+            TextItem("36,000", 340, 870, 640, 960), TextItem("이동", 220, 1100, 285, 1145), TextItem("1시간 이상 약 6.5km", 340, 1095, 820, 1150),
+            TextItem("출발", 220, 1235, 285, 1275), TextItem("삼성동 크리스찬서적", 340, 1225, 812, 1285),
+            TextItem("약 58분 운행", 340, 1340, 612, 1395),
+            TextItem("도착", 220, 1460, 285, 1500), TextItem("포천시", 340, 1450, 520, 1508), TextItem("이동면 장암리 123", 340, 1520, 850, 1578),
+            TextItem("닫기", 300, 1715, 390, 1770), TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        assertEquals("포천시 이동면 장암리 123", assertNotNull(DetailParser.parse(items)).destination)
+    }
+
+    @Test fun startPinOnMapIsIgnored() {
+        val items = listOf(
+            TextItem("출발", 150, 485, 230, 525),   // 지도 핀 (왼쪽에 있어도)
+            TextItem("36,000", 340, 870, 640, 960), TextItem("1시간 이상 약 6.5km", 340, 1095, 820, 1150),
+            TextItem("출발", 220, 1235, 285, 1275), TextItem("삼성동 크리스찬서적", 340, 1225, 812, 1285),
+            TextItem("약 58분 운행", 340, 1340, 612, 1395),
+            TextItem("도착", 220, 1460, 285, 1500), TextItem("포천시 선단동", 340, 1450, 660, 1508),
+            TextItem("닫기", 300, 1715, 390, 1770), TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        assertEquals("삼성동 크리스찬서적", assertNotNull(DetailParser.parse(items)).origin)
+    }
 }
