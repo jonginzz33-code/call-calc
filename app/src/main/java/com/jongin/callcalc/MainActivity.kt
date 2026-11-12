@@ -53,6 +53,8 @@ class MainActivity : AppCompatActivity() {
         // B 뒷방이 켜져 있어야 하는데 꺼져 있으면 (재부팅 등) 다시 켬
         if (store.running && store.mode == "B" && BackroomService.instance == null && canRunB()) runCatching { BackroomService.start(this) }
         render()
+        // 화면 공유 허락 직후엔 캡처가 막 켜지는 중이라, 조금 뒤 한 번 더 그림
+        body.postDelayed({ if (!isFinishing) render() }, 900)
         runCatching { syncCloud() }
         runCatching { Updater.resumePending(this) }
         runCatching { checkPermissions() }
@@ -212,6 +214,36 @@ class MainActivity : AppCompatActivity() {
     // ───────── A 오더 ─────────
 
     private fun renderA() {
+        // 📷 화면 공유(캡처) 칸: 늘 보임. 꺼져 있으면 빨간색으로 강조 (읽는 방식이 "접근성만"이면 숨김)
+        if (store.readMode != 1) {
+            val on = CaptureService.instance != null
+            val box = vbox().apply {
+                background = roundBg(if (on) android.graphics.Color.parseColor("#0F2A18") else android.graphics.Color.parseColor("#3A1414"),
+                    if (on) C.GOOD else C.BAD, 2, 14)
+                setPadding(dp(14), dp(10), dp(10), dp(10))
+                layoutParams = lp().also { it.topMargin = dp(10) }
+            }
+            if (on) {
+                val row = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+                row.addView(text("🟢 화면 공유 중", 16f, C.GOOD, bold = true), lp(0, weight = 1f))
+                row.addView(text("끄기", 15f, C.SUB).apply {
+                    setPadding(dp(12), dp(6), dp(8), dp(6))
+                    setOnClickListener { CaptureService.stop(this@MainActivity); body.postDelayed({ render() }, 400) }
+                })
+                box.addView(row)
+            } else {
+                box.addView(text(if (CaptureService.stoppedBySystem) "🔴 화면이 꺼져서 화면 공유가 끊겼어요" else "🔴 화면 공유가 꺼져 있어요", 17f, C.BAD, bold = true))
+                box.addView(text("접근성으로 못 읽는 콜 앱(수락 창 등)은 계산이 안 돼요", 14f, C.SUB).margins(this, top = 2))
+                box.addView(button("화면 공유 켜기", big = true) {
+                    startActivity(Intent(this, CaptureStartActivity::class.java))
+                }.apply {
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#D64545"))
+                }.margins(this, top = 8))
+                box.addView(text("허락 창에서 [전체 화면] → [시작]을 눌러 주세요", 13f, C.DIM).margins(this, top = 4))
+            }
+            body.addView(box)
+        }
+
         // 상태 한 줄 (문제 있을 때만 경고 줄)
         val acc = PermissionGuide.isAccessibilityOn(this)
         val stats = StatsStore(this, store).summary()
@@ -234,9 +266,6 @@ class MainActivity : AppCompatActivity() {
         }
         if (!acc) warn("⚠ 접근성이 꺼져 있어요", "켜기") { checkPermissionsNow() }
         else if (store.targetPackages.isEmpty() && !store.alwaysOn) warn("⚠ 감시할 콜 앱을 안 골랐어요", "고르기") { AppPicker.show(this, store) { render() } }
-        if (store.readMode != 1 && CaptureService.instance == null && CaptureService.stoppedBySystem) {
-            warn("⚠ 화면 캡처가 꺼졌어요 (화면 꺼짐)", "켜기") { startActivity(Intent(this, CaptureStartActivity::class.java)) }
-        }
         if (store.alwaysOn) body.addView(text("항상 표시(테스트용)가 켜져 있어요 · 설정 → 실시간 표시", 13f, C.WARN).margins(this, top = 4))
 
         // 🔔 좋은 콜 한 줄: [-] 1,000원/분 [+]  (스위치)
