@@ -39,6 +39,7 @@ object CallCheck {
         val pickup: Leg?,    // null = 아직 계산 중
         val ride: Leg?,
         val done: Boolean,
+        val prelim: Boolean = false, // true = 콜 앱 화면 숫자로 낸 첫 추정 (TMAP 결과 오기 전)
     ) {
         val totalMin: Int? get() {
             val p = pickup?.min ?: return null
@@ -60,6 +61,7 @@ object CallCheck {
 
     private const val API = "https://apis.openapi.sk.com/tmap"
     private val pool = Executors.newFixedThreadPool(6)
+    private val qpool = Executors.newFixedThreadPool(6) // 장소검색 여러 개 동시에
     private val main = Handler(Looper.getMainLooper())
 
     /**
@@ -72,6 +74,10 @@ object CallCheck {
             fun post(r: Result) { cur = r; main.post { onUpdate(r) } }
 
             val my = me?.let { Point(it.longitude, it.latitude, "내 위치") }
+            // A. 수락 창 숫자로 먼저 추정해서 바로 보여 주기 (TMAP 결과가 오면 바꿈)
+            val quickPickup = detail.pickupKm?.let { Leg(it * DETOUR, Math.round(it * minPerKm).toInt(), true) }
+            val quickRide = detail.rideMin?.let { Leg(null, it.toInt(), true) }
+            if (quickPickup != null || quickRide != null) post(cur.copy(pickup = quickPickup, ride = quickRide, prelim = true))
             // 키가 없으면 전부 추정
             if (key.isBlank()) {
                 post(cur.copy(pickup = estimatePickup(detail, null, minPerKm, "TMAP 키가 없어서 추정 (설정 → 콜 확인)"),
@@ -100,7 +106,7 @@ object CallCheck {
                     else estimatePickup(detail, distanceKm(my, o), minPerKm, err ?: "픽업 길찾기 실패로 추정")
                 }
             }
-            post(cur.copy(pickup = pickup))
+            post(cur.copy(pickup = pickup, ride = quickRide, prelim = quickRide != null))
 
             // ② 운행
             val ride = when {
@@ -111,7 +117,7 @@ object CallCheck {
                     else estimateRide(detail, err ?: "운행 길찾기 실패로 콜 앱 안내 시간")
                 }
             }
-            post(cur.copy(pickup = pickup, ride = withVia(detail, ride), done = true))
+            post(cur.copy(pickup = pickup, ride = withVia(detail, ride), done = true, prelim = false))
         }
     }
 
@@ -148,19 +154,73 @@ object CallCheck {
     }
 
     /** TMAP 장소검색: 가게·건물 이름으로 먼저, 안 되면 점점 짧게 (동 이름까지). 내 위치 근처 우선 */
+    /**
+     * 장소 찾기. C: 앞의 두 검색어(전체 주소, 지역 + 건물 이름)는 동시에 찾고 앞의 것을 우선,
+     * 둘 다 못 찾으면 나머지를 차례로 (점점 짧게, 동 이름까지)
+     */
     private fun findPlace(place: String, key: String, near: Point?): Point? {
-        for (q in DetailParser.searchQueries(place)) {
-            val c = near?.let { "&centerLon=${it.x}&centerLat=${it.y}" } ?: ""
-            val url = "$API/pois?version=1&count=1&searchKeyword=${URLEncoder.encode(q, "UTF-8")}$c" +
-                "&reqCoordType=WGS84GEO&resCoordType=WGS84GEO"
-            val j = request(url, key, null) ?: continue
-            val poi = j.optJSONObject("searchPoiInfo")?.optJSONObject("pois")?.optJSONArray("poi")?.optJSONObject(0) ?: continue
-            val lat = poi.optString("frontLat").ifEmpty { poi.optString("noorLat") }.toDoubleOrNull() ?: continue
-            val lon = poi.optString("frontLon").ifEmpty { poi.optString("noorLon") }.toDoubleOrNull() ?: continue
-            return Point(lon, lat, poi.optString("name").ifEmpty { q })
+        val qs = DetailParser.searchQueries(place)
+        if (qs.isEmpty()) return null
+        val first = qs.take(2).map { q -> qpool.submit<Point?> { searchOne(q, key, near) } }
+        var problem: Problem? = null
+        for (f in first) {
+            try {
+                f.get(8, TimeUnit.SECONDS)?.let { return it }
+            } catch (e: ExecutionException) {
+                (e.cause as? Problem)?.let { problem = it }
+            } catch (e: Exception) { /* 시간 초과는 다음으로 */ }
         }
+        problem?.let { throw it }
+        for (q in qs.drop(2)) searchOne(q, key, near)?.let { return it }
         return null
     }
+
+    private fun searchOne(q: String, key: String, near: Point?): Point? {
+        val c = near?.let { "&centerLon=${it.x}&centerLat=${it.y}" } ?: ""
+        val url = "$API/pois?version=1&count=1&searchKeyword=${URLEncoder.encode(q, "UTF-8")}$c" +
+            "&reqCoordType=WGS84GEO&resCoordType=WGS84GEO"
+        val j = request(url, key, null) ?: return null
+        val poi = j.optJSONObject("searchPoiInfo")?.optJSONObject("pois")?.optJSONArray("poi")?.optJSONObject(0) ?: return null
+        val lat = poi.optString("frontLat").ifEmpty { poi.optString("noorLat") }.toDoubleOrNull() ?: return null
+        val lon = poi.optString("frontLon").ifEmpty { poi.optString("noorLon") }.toDoubleOrNull() ?: return null
+        return Point(lon, lat, poi.optString("name").ifEmpty { q })
+    }
+
+    // ───────── D. TMAP 서버와 미리 연결해 두기 (계산 요청 아님, 사용량에 안 들어감) ─────────
+    @Volatile private var lastWarm = 0L
+
+    fun warmUp() {
+        val now = System.currentTimeMillis()
+        if (now - lastWarm < 120_000) return
+        lastWarm = now
+        pool.execute {
+            runCatching {
+                val c = URL("https://apis.openapi.sk.com/").openConnection() as HttpURLConnection
+                c.connectTimeout = 4000; c.readTimeout = 4000
+                c.responseCode
+                (c.errorStream ?: runCatching { c.inputStream }.getOrNull())?.use { it.readBytes() }
+            }
+        }
+    }
+
+    // ───────── 오늘 TMAP 사용량 (이 폰에서 직접 센 수) ─────────
+    private fun usagePrefs() = appCtx?.getSharedPreferences("tmap_usage", Context.MODE_PRIVATE)
+    private fun today() = java.time.LocalDate.now().toString()
+
+    @Synchronized private fun countCall() {
+        val p = usagePrefs() ?: return
+        val k = today()
+        if (p.getString("day", "") != k) p.edit().putString("day", k).putInt("count", 0).apply()
+        p.edit().putInt("count", p.getInt("count", 0) + 1).apply()
+    }
+
+    /** 오늘 이 폰에서 부른 TMAP 횟수 */
+    fun todayUsage(ctx: Context): Int {
+        val p = ctx.getSharedPreferences("tmap_usage", Context.MODE_PRIVATE)
+        return if (p.getString("day", "") == today()) p.getInt("count", 0) else 0
+    }
+
+    fun init(ctx: Context) { appCtx = ctx.applicationContext }
 
     /** TMAP 자동차 경로안내 (추천, 교통 반영, 승용차). (거리 m, 시간 초, 통행료 원) */
     private fun carRoute(o: Point, d: Point, key: String): Triple<Int, Int, Int>? {
@@ -190,6 +250,7 @@ object CallCheck {
     private class Retry(msg: String) : Exception(msg)
 
     private fun requestOnce(url: String, key: String, body: String?): JSONObject? {
+        countCall()
         val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 4000

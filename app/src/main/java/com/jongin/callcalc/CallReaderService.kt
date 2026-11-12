@@ -97,6 +97,7 @@ class CallReaderService : AccessibilityService() {
 
     override fun onServiceConnected() {
         store = Store(this)
+        CallCheck.init(this)
         stats = StatsStore(this, store)
         overlay = Overlay(
             this, store,
@@ -257,6 +258,7 @@ class CallReaderService : AccessibilityService() {
         if (overlay.editing) return // 영역 정하는 중엔 읽지 않음
         overlay.showBubble()
         CallCheck.startLocation(this) // 감시하는 앱이 떠 있는 동안 위치를 미리 잡아 둠
+        if (store.tmapKey.isNotBlank()) CallCheck.warmUp() // TMAP 서버와 미리 연결
         if (!store.overlayOn) { hideLabels(); idle(HEARTBEAT); return }
         val sinceScroll = SystemClock.uptimeMillis() - lastScrollAt
         if (sinceScroll < SCROLL_SETTLE) { schedule(SCROLL_SETTLE - sinceScroll + 10, postpone = true); return }
@@ -565,7 +567,7 @@ class CallReaderService : AccessibilityService() {
         fun short(place: String) = place.split(' ').let { w -> if (w.size > 2) w.takeLast(2).joinToString(" ") else place }
         val per = r.perMinute
         val perColor = when {
-            per == null -> C.SUB
+            per == null || r.prelim -> C.SUB  // 추정이면 색 바탕 없이 회색 글씨
             store.goodAlertOn && per >= store.goodAlertMin -> C.GOOD
             store.threshold != null && per < store.threshold!! -> C.GRAY
             else -> C.FG
@@ -574,16 +576,17 @@ class CallReaderService : AccessibilityService() {
         val money = if (toll > 0) "${num(r.detail.price)} − 톨 ${num(toll.toDouble())} = ${num(r.net)}원"
             else "${num(r.detail.price)}원"
         val pickupTag = if (r.pickup?.estimated == true) "추정" else null
+        val doneWarn = r.done
         val rideTag = listOfNotNull(
             if (r.detail.hasVia) "경유" else null,
             if (r.ride?.estimated == true) "추정" else null,
         ).joinToString("·").ifEmpty { null }
         // 문제가 있을 때만 작은 한 줄 (경유 안내는 태그로 충분해서 빼기)
-        val warn = listOfNotNull(r.pickup?.note, r.ride?.note)
+        val warn = if (!doneWarn) null else listOfNotNull(r.pickup?.note, r.ride?.note)
             .map { it.replace(Regex("경유지 있음[^·]*·?\\s*"), "").trim() }
             .filter { it.isNotBlank() }.distinct().joinToString(" · ").ifEmpty { null }
         overlay.showCheckCard(Overlay.CheckCard(
-            per = per?.let { "${num(it)}원/분" } ?: if (r.done) "—" else "계산 중…",
+            per = per?.let { (if (r.prelim) "추정 " else "") + "${num(it)}원/분" } ?: if (r.done) "—" else "계산 중…",
             perColor = perColor,
             pickupPlace = short(r.originName), pickupVal = legVal(r.pickup), pickupTag = pickupTag,
             ridePlace = short(r.destName), rideVal = legVal(r.ride),

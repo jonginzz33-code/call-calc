@@ -505,7 +505,7 @@ class Overlay(
         val (pillBg, pillFg) = when (c.perColor) {
             C.GOOD -> Color.parseColor("#7DFF7D") to Color.parseColor("#0C2A12")   // 좋은 콜
             C.GRAY -> Color.parseColor("#3A4048") to Color.parseColor("#C7CED8")   // 기준 미달
-            C.SUB -> Color.TRANSPARENT to C.SUB                                     // 계산 중
+            C.SUB -> Color.parseColor("#2B323C") to C.SUB                          // 추정·계산 중 (색 바탕 없음)
             else -> Color.parseColor("#FFD54A") to Color.parseColor("#111111")      // 보통
         }
         top.addView(svc.text(c.per, 24f, pillFg, bold = true).apply {
@@ -550,7 +550,7 @@ class Overlay(
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = statusBarHeight() + dp(56) // 맨 위 통계 글씨 바로 아래
+            y = statusBarHeight() // 화면 맨 꼭대기 (수락 창의 금액·주소를 가리지 않게. 통계 글씨는 잠시 가려짐)
         }
         runCatching { wm.addView(box, lp) }
         result = box

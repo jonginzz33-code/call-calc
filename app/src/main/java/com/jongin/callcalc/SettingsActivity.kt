@@ -256,6 +256,10 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(editText("TMAP 앱 키 붙여 넣기 (SK오픈API → 앱 → 앱키)", store.tmapKey).apply {
             addTextChangedListener(afterChange { store.tmapKey = it; showKeyState() })
         })
+        val used = CallCheck.todayUsage(this)
+        root.addView(text("오늘 TMAP 사용: ${String.format(java.util.Locale.US, "%,d", used)}건 / 무료 10,000건 (이 폰에서 센 수, 자정에 0으로)", 15f,
+            if (used > 8000) C.WARN else C.SUB).margins(this, top = 6))
+        root.addView(text("정확한 공식 사용량은 SK오픈API → 대시보드 → 앱(계산기) → 통계 탭에서 볼 수 있어요.", 13f, C.DIM))
 
         // 버튼 위치
         root.addView(button("버튼 위치 처음으로 (콜 ON 아래 가운데, 콜 확인 왼쪽 맨 위)", outlined = true) {
