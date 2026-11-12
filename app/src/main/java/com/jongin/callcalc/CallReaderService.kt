@@ -194,6 +194,13 @@ class CallReaderService : AccessibilityService() {
 
     /** 화면 어디든 만지면 (손을 떼는 시점은 알 수 없어서) 조금 뒤 읽고, 한 번 더 확인 */
     private fun onScreenTouch() {
+        // 콜 확인 창이 떠 있으면 화면 어디를 터치해도 바로 닫음 (터치는 콜 앱에 그대로 전달됨).
+        // 닫은 콜은 같은 수락 창에서 다시 저절로 뜨지 않게 기억
+        if (overlay.resultShowing) {
+            overlay.hideResult()
+            dismissedKey = shownJobKey ?: dismissedKey
+            shownJobKey = null
+        }
         schedule(TOUCH_DELAY)
         handler.removeCallbacks(touchFollowUp)
         handler.postDelayed(touchFollowUp, TOUCH_FOLLOW_UP)
