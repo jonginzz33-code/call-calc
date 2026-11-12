@@ -10,4 +10,17 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest --tests "com.jongin.callcalc.LaunchTest" || true
-      - run: python3 -c "import glob,re;[print(re.sub(r'&#10;|&quot;','\n',m)[:6000]) for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml') for m in re.findall(r'<failure[^>]*>(.*?)</failure>',open(f).read(),re.S)]"
+      - run: |
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do grep -o 'testcase name="[^"]*"' $f; done
+          python3 - <<'PY'
+          import glob,re,html
+          for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              t=open(f).read()
+              for name,body in re.findall(r'<testcase name="([^"]*)".*?>(.*?)</testcase>',t,re.S):
+                  m=re.search(r'<failure[^>]*>(.*?)</failure>',body,re.S)
+                  print("TEST",name,"FAIL" if m else "OK")
+                  if m:
+                      lines=html.unescape(m.group(1)).split('\n')
+                      keep=[l for l in lines if 'jongin' in l or not l.strip().startswith('at ')]
+                      print('\n'.join(keep[:40]))
+          PY
