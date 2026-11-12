@@ -109,7 +109,7 @@ class OrderScreenTest {
     @Test fun echoesAndNearbyWords() {
         assertEquals("파주시 야당동 야당역", DetailParser.searchQueries("파주시 야당동 야당역인근").first())
         assertEquals("수원시 권선구 곡반정동 하나로마트", DetailParser.searchQueries("수원시 권선구 곡반정동 수원곡반정동,하나로마트").first())
-        assertEquals("송파구 방이동 오륜동올림픽", DetailParser.searchQueries("송파구 방이동 송파오륜동올림픽@")[1])
+        assertEquals("송파구 방이동 오륜동올림픽아파트", DetailParser.searchQueries("송파구 방이동 송파오륜동올림픽@")[1])
     }
 
     @Test fun areaOnlyIsDetected() {
@@ -194,5 +194,37 @@ class OrderScreenTest {
             TextItem("도착", 220, 1460, 285, 1500), TextItem("콜 수락하기", 650, 1715, 880, 1770))
         assertTrue(DetailParser.diagnose(items)!!.contains("금액"))
         assertNull(DetailParser.diagnose(listOf(TextItem("오늘 날씨", 0, 0, 10, 10))))
+    }
+
+    // ── 다섯 번째 묶음 ──
+    @Test fun atMeansApartment() {
+        assertEquals("안양시 동안구 호계동 호계동무궁화한양아파트", DetailParser.searchQueries("안양시 동안구 호계동 호계동무궁화한양@").first())
+    }
+
+    @Test fun wrongNameIsRejected() {
+        // 공릉동 이안클래식 → 공릉동의 다른 가게는 버림
+        assertNull(DetailParser.pickPlace("공릉동 이안클래식", listOf("노원구" to "공릉동"), listOf("재잘재잘언어발달센터")))
+        assertEquals(1, DetailParser.pickPlace("공릉동 이안클래식", listOf("노원구" to "공릉동", "노원구" to "공릉동"), listOf("재잘재잘언어발달센터", "이안클래식")))
+        // 하남수산물시장 주차장 → "하남점 주차장"은 버림 (주차장만 겹침)
+        assertFalse(DetailParser.nameMatches("풍산동 하남수산물시장 주차장", "하남점 주차장"))
+        assertTrue(DetailParser.nameMatches("송파구 방이동 오륜동올림픽아파트", "올림픽선수기자촌아파트"))
+        assertTrue(DetailParser.nameMatches("성동구 성수동1가 뚝섬역 2호선", "뚝섬역[수도권2호선]"))
+        assertTrue(DetailParser.nameMatches("풍산동", "풍산동"))
+    }
+
+    /** 지도 위 "도착" 핀이 읽히고, 진짜 도착 글자는 잘못 읽힌 경우 (포천·방화동 화면) */
+    @Test fun endLabelMisread() {
+        val items = listOf(
+            TextItem("도착", 610, 225, 690, 265), TextItem("출발", 560, 485, 640, 525),   // 지도 핀
+            TextItem("36,000", 340, 870, 640, 960), TextItem("이동", 220, 1100, 285, 1145), TextItem("1시간 이상 약 6.5km", 340, 1095, 820, 1150),
+            TextItem("출발", 220, 1235, 285, 1275), TextItem("삼성동 크리스찬서적", 340, 1225, 812, 1285),
+            TextItem("약 58분 운행", 340, 1340, 612, 1395),
+            TextItem("도작", 220, 1460, 285, 1500), TextItem("포천시 선단동", 340, 1450, 660, 1508), TextItem("지역사회전환시설라온", 340, 1520, 850, 1578),
+            TextItem("닫기", 300, 1715, 390, 1770), TextItem("콜 수락하기", 650, 1715, 880, 1770),
+        )
+        val d = assertNotNull(DetailParser.parse(items))
+        assertEquals("삼성동 크리스찬서적", d.origin)
+        assertEquals("포천시 선단동 지역사회전환시설라온", d.destination.replace("도작 ", ""))
+        assertEquals(58.0, d.rideMin)
     }
 }

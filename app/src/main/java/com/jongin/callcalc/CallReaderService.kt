@@ -534,7 +534,7 @@ class CallReaderService : AccessibilityService() {
         val job = CheckJob(k, now)
         jobs[k] = job
         while (jobs.size > 20) jobs.remove(jobs.keys.first())
-        CallCheck.run(d, store.tmapKey, CallCheck.freshLocation(this), store.pickupMinPerKm, store.tollCar) { r ->
+        CallCheck.run(d, store.tmapKey, CallCheck.freshLocation(this), store.pickupMinPerKm, store.tollCar, testMode = store.alwaysOn) { r ->
             job.latest = r
             job.listener?.invoke(r)
         }

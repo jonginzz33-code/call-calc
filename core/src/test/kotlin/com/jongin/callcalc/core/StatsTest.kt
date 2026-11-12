@@ -159,11 +159,11 @@ class DetailTest {
 
     @Test fun specialCharactersAreRemoved() {
         val q1 = DetailParser.searchQueries("시흥시 은행동 시흥은행동661.한양수자인@")
-        assertEquals("시흥시 은행동 시흥은행동661 한양수자인", q1[0])
-        assertEquals("시흥시 은행동 한양수자인", q1[1])   // 지역 + 건물 이름
+        assertEquals("시흥시 은행동 시흥은행동661 한양수자인아파트", q1[0])
+        assertEquals("시흥시 은행동 한양수자인아파트", q1[1])   // 지역 + 건물 이름
         assertEquals("영종구 운남동 영종베르힐스카이시티아파트",
             DetailParser.searchQueries("영종구 운남동 영종베르힐스카이시티아파트 \\").first())
-        assertEquals("시흥시 하중동 하중동관곡마을동아",
+        assertEquals("시흥시 하중동 하중동관곡마을동아아파트",
             DetailParser.searchQueries("시흥시 하중동 ♥하중동관곡마을동아@").first())
         assertEquals("거모동 1753-3", DetailParser.searchQueries("거모동 1753-3").first())
     }

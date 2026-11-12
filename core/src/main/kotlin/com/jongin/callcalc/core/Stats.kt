@@ -133,9 +133,13 @@ object DetailParser {
         val items = splitLabels(raw.filter { it.text.isNotBlank() })
         if (items.none { it.text.replace(" ", "").contains("수락") }) return null
         fun label(name: String) = items.filter { it.text.replace(" ", "") == name }.minByOrNull { it.left }
-        val start = label("출발")
-        val end = label("도착")
-        if (start == null || end == null) return parseStacked(items)
+        val start = label("출발") ?: return parseStacked(items)
+        // 도착 글자는 출발 아래에 있는 것만 (지도 위 "도착" 핀을 잘못 잡지 않게).
+        // 글자 인식이 도착을 잘못 읽으면(도작 등) "약 ○분 운행" 줄 아래를 도착으로
+        val rideLine = items.filter { rideRe.containsMatchIn(it.text) && it.top > start.top }.minByOrNull { it.top }
+        val end = items.filter { it.text.replace(" ", "") == "도착" && it.top > start.bottom }.minByOrNull { it.left }
+            ?: rideLine?.let { r -> TextItem("도착", start.left, r.bottom + 1, start.right, r.bottom + 1 + (start.bottom - start.top)) }
+            ?: return parseStacked(items)
 
         // 금액: 쉼표 숫자 중 글씨가 가장 큰 것 (실수익)
         val price = items.mapNotNull { it -> Extract.money(it.text)?.let { v -> v to it.height } }
@@ -152,7 +156,11 @@ object DetailParser {
             .trim()
 
         val origin = valueLines(start, end.top)
-        val destination = valueLines(end, stopTop)
+        val destination = valueLines(end, stopTop).ifEmpty {
+            // 도착 줄이 도착 글자보다 살짝 위에서 시작하는 경우
+            items.filter { it.left > start.right && it.centerY > (rideLine?.bottom ?: end.top) && it.centerY < stopTop && rideRe.find(it.text) == null }
+                .sortedWith(compareBy({ it.top }, { it.left })).joinToString(" ") { it.text.trim() }.trim()
+        }
         if (origin.isEmpty() || destination.isEmpty()) return null
         val ride = items.firstNotNullOfOrNull { rideRe.find(it.text)?.groupValues?.get(1)?.toDoubleOrNull() }
         // "이동" 줄의 km (출발 줄보다 위)
@@ -234,6 +242,7 @@ object DetailParser {
      */
     fun cleanPlace(place: String): List<String> {
         val t = place
+            .replace(Regex("""([가-힣0-9])@"""), "$1아파트")   // "한양@" = 한양아파트
             .replace(Regex("""/\s*(카드|현금|계좌|선결제)\S*"""), " ")
             .replace(Regex("""(^|\s)\d{1,2}\)"""), " ")
             .replace(Regex("[.,·]"), " ")
@@ -330,12 +339,29 @@ object DetailParser {
      * 지도 결과 고르기: 결과 주소(시·구, 동)가 검색어의 동 이름과 맞으면 2점, 시·구만 맞으면 1점.
      * 검색어에 지역 이름이 있는데 하나도 안 맞으면 null (엉뚱한 동네의 같은 이름 장소 걸러 내기)
      */
-    fun pickPlace(query: String, results: List<Pair<String, String>>): Int? {
+    /** 검색어의 건물 이름 부분 (지역·번지·흔한 말 빼고, 띄어쓰기 없이) */
+    private fun buildingOf(query: String): String =
+        query.split(" ").filter { !regionWord.matches(it) && !numberish.matches(it) && !generic.matches(it) }.joinToString("")
+
+    /** 결과 이름이 검색한 건물 이름과 3글자 이상 겹치는지 (짧으면 2글자) */
+    fun nameMatches(query: String, name: String): Boolean {
+        val b = buildingOf(query)
+        if (b.length < 2) return true
+        val n = name.replace(" ", "")
+        val k = if (b.length >= 3) 3 else 2
+        return (0..b.length - k).any { n.contains(b.substring(it, it + k)) }
+    }
+
+    fun pickPlace(query: String, results: List<Pair<String, String>>, names: List<String> = emptyList()): Int? {
         if (results.isEmpty()) return null
+        // 이름이 하나도 안 겹치는 결과는 버림 (공릉동 이안클래식 → 공릉동 다른 가게 X)
+        val okName = results.indices.filter { names.getOrNull(it)?.let { n -> nameMatches(query, n) } ?: true }
+        if (okName.isEmpty()) return null
         val (dong, gu) = regionHints(query)
-        if (dong.isEmpty() && gu.isEmpty()) return 0
+        if (dong.isEmpty() && gu.isEmpty()) return okName.first()
         var best = -1; var bestScore = 0
         results.forEachIndexed { i, (middle, lower) ->
+            if (i !in okName) return@forEachIndexed
             val low = normDong(lower.trim())
             val score = when {
                 dong.any { d -> low == d } -> 2

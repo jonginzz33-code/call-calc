@@ -71,7 +71,7 @@ object CallCheck {
      * 계산 시작. onUpdate 는 메인 스레드에서 여러 번 (픽업 먼저, 그다음 운행) 불린다. 마지막은 done = true.
      * minPerKm: 추정할 때 쓰는 픽업 1km당 분 (설정값)
      */
-    fun run(detail: CallDetail, key: String, me: Location?, minPerKm: Double, car: Int, onUpdate: (Result) -> Unit) {
+    fun run(detail: CallDetail, key: String, me: Location?, minPerKm: Double, car: Int, testMode: Boolean = false, onUpdate: (Result) -> Unit) {
         pool.execute {
             var cur = Result(detail, detail.origin, detail.destination, null, null, false, car = car)
             fun post(r: Result) { cur = r; main.post { onUpdate(r) } }
@@ -111,7 +111,7 @@ object CallCheck {
             }
             // 출발 위치 확인: 콜 앱이 알려 준 거리(직선)보다 터무니없이 멀면 엉뚱한 곳 → 추정으로
             val appKm = detail.pickupKm
-            if (!pickup.estimated && appKm != null && pickup.km != null && pickup.km > maxOf(appKm * 3, appKm + 15)) {
+            if (!testMode && !pickup.estimated && appKm != null && pickup.km != null && pickup.km > maxOf(appKm * 3, appKm + 15)) {
                 pickup = estimatePickup(detail, null, minPerKm,
                     "⚠ 출발 위치 확인 (내비 ${String.format(java.util.Locale.US, "%.1f", pickup.km)}km / 콜 앱 ${appKm}km) · 추정")
             }
@@ -216,7 +216,8 @@ object CallCheck {
         val j = request(url, key, null) ?: return null
         val arr = j.optJSONObject("searchPoiInfo")?.optJSONObject("pois")?.optJSONArray("poi") ?: return null
         val pois = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
-        val pick = DetailParser.pickPlace(q, pois.map { it.optString("middleAddrName") to it.optString("lowerAddrName") }) ?: return null
+        val pick = DetailParser.pickPlace(q, pois.map { it.optString("middleAddrName") to it.optString("lowerAddrName") },
+            pois.map { it.optString("name") }) ?: return null
         val poi = pois[pick]
         val lat = poi.optString("frontLat").ifEmpty { poi.optString("noorLat") }.toDoubleOrNull() ?: return null
         val lon = poi.optString("frontLon").ifEmpty { poi.optString("noorLon") }.toDoubleOrNull() ?: return null
