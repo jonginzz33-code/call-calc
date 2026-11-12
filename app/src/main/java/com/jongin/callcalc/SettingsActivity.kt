@@ -30,14 +30,13 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var store: Store
     private lateinit var formulaBox: LinearLayout
     private lateinit var wordBox: LinearLayout
-    private lateinit var permBox: LinearLayout
+
+    private lateinit var list: LinearLayout
 
     override fun onResume() {
         super.onResume()
         Updater.resumePending(this)
-        // 설정에서 권한을 켜고 돌아오면 상태를 다시 그림
-        permBox.removeAllViews()
-        permBox.addView(PermissionGuide.statusRows(this))
+        if (::list.isInitialized) renderList() // 권한을 켜고 돌아오면 다시 그림
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,120 +44,136 @@ class SettingsActivity : AppCompatActivity() {
         store = Store(this)
         val root = vbox(16)
         scrollPage(root)
-
-        val header = hbox()
+        val header = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
         header.addView(text("설정", 28f, bold = true), lp(0, weight = 1f))
         header.addView(button("완료", outlined = true) { finish() })
         root.addView(header)
+        root.addView(text("줄을 누르면 아래에서 그 설정 창이 올라와요. 바꾸면 바로 저장돼요.", 14f, C.DIM).margins(this, top = 4))
+        list = vbox()
+        root.addView(list, lp().also { it.topMargin = dp(8) })
+        root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 13f, C.GRAY).margins(this, top = 20))
+        renderList()
+    }
 
-        // 맨 위: 콜 앱 위에 띄울 버튼 (각각 따로)
-        val showBox = vbox().apply {
-            background = roundBg(C.PANEL, C.LINE, 2, 14)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            layoutParams = lp().also { it.topMargin = dp(12) }
+    /** 주제 목록 (오른쪽에 지금 값) */
+    private fun renderList() {
+        list.removeAllViews()
+        val missing = PermissionGuide.all().count { p -> runCatching { !p.granted(this) }.getOrDefault(false) }
+        fun item(icon: String, title: String, value: String, warn: Boolean = false, open: () -> Unit) {
+            val row = hbox().apply {
+                gravity = Gravity.CENTER_VERTICAL
+                background = roundBg(C.PANEL, if (warn) C.WARN else C.LINE, 2, 14)
+                setPadding(dp(14), dp(16), dp(12), dp(16))
+                layoutParams = lp().also { it.topMargin = dp(8) }
+                setOnClickListener { open() }
+            }
+            row.addView(text("$icon  $title", 18f, bold = true), lp(0, weight = 1f))
+            row.addView(text("$value  ›", 15f, if (warn) C.WARN else C.SUB))
+            list.addView(row)
         }
-        fun showCheck(label: String, on: Boolean, set: (Boolean) -> Unit) = showBox.addView(
-            com.google.android.material.checkbox.MaterialCheckBox(this).apply {
-                text = label
-                textSize = 18f
-                setTextColor(C.FG)
-                isChecked = on
-                setOnCheckedChangeListener { _, v -> set(v); live() }
-            },
-        )
-        showCheck("콜 ON 띄우기", store.showCallOn) { store.showCallOn = it }
-        showCheck("콜 확인 띄우기", store.showCheckOn) { store.showCheckOn = it }
-        showBox.addView(text("두 버튼은 따로 끌어서 옮길 수 있어요. 꺼도 화면 터치 새로고침은 계속 돼요.", 14f, C.DIM).apply {
-            setPadding(dp(4), 0, 0, dp(6))
-        })
-        root.addView(showBox)
+        val close = { renderList(); live() }
+        item("🚗", "톨비 계산", CallCheck.carName(store.tollCar)) { sheet("🚗 톨비 계산", close) { carSheet(it) } }
+        item("🧮", "계산식 · 픽업", "${MainActivity.pretty(store.selectedFormula.expr)} · ${Store.plain(store.pickupMinPerKm)}분") { sheet("🧮 계산식 · 픽업", close) { formulaSheet(it) } }
+        item("💰", "기준 단가 · 최소 금액", listOfNotNull(store.threshold?.let { formatNumber(it) + "원/분" },
+            if (store.minPriceOn) store.minPrice?.let { "최소 " + formatNumber(it) } else null).joinToString(" · ").ifEmpty { "안 씀" }) {
+            sheet("💰 기준 단가 · 최소 금액", close) { priceSheet(it) }
+        }
+        item("📍", "지역 단어", "${store.words.size}개") { sheet("📍 지역 단어", close) { wordSheet(it) } }
+        item("📱", "실시간 표시", if (store.alwaysOn) "항상 표시" else AppPicker.summary(this, store).take(14)) { sheet("📱 실시간 표시 (콜 앱 위)", close) { liveSheet(it) } }
+        item("🗺", "콜 확인 (TMAP)", "키 " + if (store.tmapKey.isBlank()) "❌" else "✅", warn = store.tmapKey.isBlank()) { sheet("🗺 콜 확인 (TMAP)", close) { tmapSheet(it) } }
+        item("📊", "통계 시간", "${store.statsStartHour}시~${store.statsEndHour}시") { sheet("📊 통계 시간", close) { statsSheet(it) } }
+        item("🔐", "권한", if (missing == 0) "전부 ✅" else "${missing}개 꺼짐", warn = missing > 0) { sheet("🔐 권한", close) { it.addView(PermissionGuide.statusRows(this)) } }
+        item("⟳", "업데이트", "v" + Updater.versionText(this)) { sheet("⟳ 업데이트", close) { updateSheet(it) } }
+        item("🧪", "시험하기 (사진)", "") { startActivity(android.content.Intent(this, TestActivity::class.java)) }
+    }
 
-        // 톨비 계산 기준 차 (2인 1조로 뒤따라가는 내 차)
-        val carCard = vbox().apply {
-            background = roundBg(C.PANEL, C.LINE, 2, 14)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            layoutParams = lp().also { it.topMargin = dp(12) }
-        }
-        carCard.addView(text("톨비 계산 (뒤따라가는 내 차)", 18f, bold = true))
-        carCard.addView(text("혼자 할 땐 '없음'. 2인 1조면 따라가는 차를 고르면 그 차 톨비를 빼고 분당 금액을 계산해요.", 14f, C.DIM))
-        val group = android.widget.RadioGroup(this).apply { orientation = android.widget.RadioGroup.VERTICAL }
+    // ───────── 주제별 창 ─────────
+
+    private fun carSheet(root: LinearLayout) {
+        root.addView(text("혼자 할 땐 '없음'. 2인 1조면 뒤따라가는 내 차를 고르면 그 차 톨비를 빼고 분당 금액을 계산해요.", 15f, C.DIM))
+        val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
         for ((car, name) in CallCheck.CARS) {
             group.addView(com.google.android.material.radiobutton.MaterialRadioButton(this).apply {
-                id = 9000 + car
-                text = name
-                textSize = 17f
-                setTextColor(C.FG)
+                id = 9000 + car; text = name; textSize = 19f; setTextColor(C.FG); setPadding(dp(4), dp(8), 0, dp(8))
             })
         }
         group.check(9000 + store.tollCar)
         group.setOnCheckedChangeListener { _, id -> store.tollCar = id - 9000; live() }
-        carCard.addView(group)
-        root.addView(carCard)
+        root.addView(group.margins(this, top = 6))
+    }
 
-        // 업데이트 확인 (맨 위)
-        val upCard = vbox().apply {
-            background = roundBg(C.PANEL, C.BTN, 2, 14)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            layoutParams = lp().also { it.topMargin = dp(12) }
-        }
-        upCard.addView(text("지금 버전: " + Updater.versionText(this), 17f, bold = true))
-        upCard.addView(button("⟳ 업데이트 확인", big = true) { Updater.check(this, quiet = false) }.margins(this, top = 8))
-        upCard.addView(text("브라우저로 받기", 15f, C.ACCENT).apply {
-            setPadding(0, dp(10), 0, 0)
-            setOnClickListener { Updater.openInBrowser(this@SettingsActivity) }
-        })
-        root.addView(upCard)
-
-        // ── 계산식 ──
-        root.addView(sectionTitle("계산식"))
+    private fun formulaSheet(root: LinearLayout) {
         root.addView(text("A = 픽업 거리(km), B = 운행 시간(분), C = 금액(원)\nP = 픽업 시간(분) = A × 1km당 분, 반올림\n줄을 누르면 그 식을 써요.", 15f, C.DIM))
         formulaBox = vbox()
         root.addView(formulaBox, lp().also { it.topMargin = dp(6) })
         root.addView(dashedButton("+ 식 추가") { editFormula(null) })
-
-        // 픽업 1km당 분 (시간대마다 다름)
-        root.addView(text("픽업 1km당 몇 분", 18f, bold = true).margins(this, top = 16))
-        root.addView(text("동그라미를 끌어서 1~10분 사이로 골라요. 시간대마다 바꿔 쓰세요. (메인 화면에서도 바꿀 수 있어요)", 15f, C.DIM))
-        root.addView(pickupSlider(store) {}.margins(this, top = 8))
         root.addView(text("기본값으로 되돌리기", 15f, C.ACCENT).apply {
             setPadding(0, dp(12), 0, dp(4))
             setOnClickListener { confirmResetFormulas() }
         })
         renderFormulas()
+        root.addView(text("픽업 1km당 몇 분", 18f, bold = true).margins(this, top = 16))
+        root.addView(pickupSlider(store) {}.margins(this, top = 8))
+    }
 
-        // ── 기준값 ──
-        root.addView(sectionTitle("기준 단가"))
-        root.addView(text("계산값이 이보다 작으면 회색으로 흐리게 보여요. 비워 두면 안 써요.", 15f, C.DIM))
-        root.addView(numberField("예: 300", store.threshold) { store.threshold = it })
-
-        val minRow = hbox().apply { margins(this@SettingsActivity, top = 16) }
-        minRow.addView(text("최소 금액\n(이보다 싼 콜은 숨김)", 18f, bold = true), lp(0, weight = 1f))
-        val minField = numberField("예: 15000", store.minPrice) { store.minPrice = it }
-        minField.isEnabled = store.minPriceOn
-        minRow.addView(MaterialSwitch(this).apply {
-            isChecked = store.minPriceOn
-            setOnCheckedChangeListener { _, on -> store.minPriceOn = on; minField.isEnabled = on }
+    private fun priceSheet(root: LinearLayout) {
+        // 기준 단가: 켜고 끄기 + [-] [+]
+        val tRow = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        tRow.addView(text("기준 단가", 19f, bold = true), lp(0, weight = 1f))
+        val tStep = stepper("이보다 낮으면 회색으로 흐리게", "원/분", { store.threshold }, 50.0, 50.0, 5000.0) { store.threshold = it; live() }
+        tRow.addView(MaterialSwitch(this).apply {
+            isChecked = store.threshold != null
+            setOnCheckedChangeListener { _, on ->
+                store.threshold = if (on) (store.threshold ?: 300.0) else null
+                tStep.alpha = if (on) 1f else 0.4f
+                (tStep.getChildAt(2) as? android.widget.TextView)?.text = store.threshold?.let { formatNumber(it) + "원/분" } ?: "안 씀"
+                live()
+            }
         })
-        root.addView(minRow)
-        root.addView(minField)
+        tStep.alpha = if (store.threshold != null) 1f else 0.4f
+        root.addView(tRow)
+        root.addView(tStep)
 
-        // ── 지역 단어 ──
-        root.addView(sectionTitle("지역 단어"))
+        val mRow = hbox().apply { gravity = Gravity.CENTER_VERTICAL; layoutParams = lp().also { it.topMargin = dp(22) } }
+        mRow.addView(text("최소 금액", 19f, bold = true), lp(0, weight = 1f))
+        val mStep = stepper("이보다 싼 콜은 숨김", "원", { store.minPrice ?: 15000.0 }, 1000.0, 1000.0, 200000.0) { store.minPrice = it; live() }
+        mRow.addView(MaterialSwitch(this).apply {
+            isChecked = store.minPriceOn
+            setOnCheckedChangeListener { _, on ->
+                store.minPriceOn = on
+                if (on && store.minPrice == null) store.minPrice = 15000.0
+                mStep.alpha = if (on) 1f else 0.4f
+                live()
+            }
+        })
+        mStep.alpha = if (store.minPriceOn) 1f else 0.4f
+        root.addView(mRow)
+        root.addView(mStep)
+    }
+
+    private fun wordSheet(root: LinearLayout) {
         root.addView(text("주소에 이 단어가 들어 있으면 색으로 표시해요.\n\"안산\" → 안산시 단원구, 상록구 모두 걸려요.", 15f, C.DIM))
         wordBox = vbox()
         root.addView(wordBox, lp().also { it.topMargin = dp(6) })
         root.addView(dashedButton("+ 단어 추가") { editWord(-1) })
         renderWords()
-
         root.addView(text("검사할 주소", 18f, bold = true).margins(this, top = 18))
         root.addView(radios(listOf("도착지만", "출발지도 포함"), if (store.checkOrigin) 1 else 0) { store.checkOrigin = it == 1 })
         root.addView(text("⛔ 빨강 지역 콜은", 18f, bold = true).margins(this, top = 14))
         root.addView(radios(listOf("계산값을 보여 주고 경고", "계산값 숨기기"), if (store.hideRedValue) 1 else 0) { store.hideRedValue = it == 1 })
         root.addView(text("어느 쪽이든 '제일 좋음'에서 빠져요.", 15f, C.DIM))
+    }
 
-        // ── 실시간 표시 ──
-        root.addView(sectionTitle("실시간 표시 (콜 앱 위)"))
+    private fun liveSheet(root: LinearLayout) {
+        fun switchRow(label: String, on: Boolean, set: (Boolean) -> Unit) {
+            val row = hbox().apply { gravity = Gravity.CENTER_VERTICAL; margins(this@SettingsActivity, top = 12) }
+            row.addView(text(label, 17f), lp(0, weight = 1f))
+            row.addView(MaterialSwitch(this).apply { isChecked = on; setOnCheckedChangeListener { _, v -> set(v); live() } })
+            root.addView(row)
+        }
+        // 감시할 앱
         val appRow = hbox().apply {
+            gravity = Gravity.CENTER_VERTICAL
             background = roundBg(C.PANEL, C.LINE, 2, 12)
             setPadding(dp(14), dp(12), dp(10), dp(12))
         }
@@ -166,33 +181,44 @@ class SettingsActivity : AppCompatActivity() {
         fun refreshApps() { appText.text = "감시할 앱\n" + AppPicker.summary(this, store) }
         refreshApps()
         appRow.addView(appText, lp(0, weight = 1f))
-        appRow.addView(button("고르기", outlined = true) { AppPicker.show(this, store) { refreshApps() } })
+        appRow.addView(button("고르기", outlined = true) { AppPicker.show(this, store) { refreshApps(); live() } })
         root.addView(appRow)
-        val alwaysRow = hbox().apply { margins(this@SettingsActivity, top = 10) }
-        alwaysRow.addView(text("항상 표시 (모든 앱에서, 테스트용)", 18f), lp(0, weight = 1f))
-        alwaysRow.addView(MaterialSwitch(this).apply {
-            isChecked = store.alwaysOn
-            setOnCheckedChangeListener { _, on -> store.alwaysOn = on; live() }
-        })
-        root.addView(alwaysRow)
-        root.addView(text("켜면 감시할 앱과 상관없이 어느 화면에서나 읽어요. 갤러리에서 스크린샷으로 시험할 때 써요.", 15f, C.DIM))
+        switchRow("항상 표시 (모든 앱에서, 테스트용)", store.alwaysOn) { store.alwaysOn = it }
+        root.addView(text("켜면 감시할 앱과 상관없이 어느 화면에서나 읽어요. 갤러리 스크린샷으로 시험할 때만 쓰세요.", 14f, C.DIM))
 
-        root.addView(text("새로고침 방식", 18f, bold = true).margins(this, top = 14))
+        // 화면 캡처
+        val capOn = CaptureService.instance != null
+        root.addView(button(if (capOn) "화면 캡처 중지" else "화면 캡처 시작", outlined = true) {
+            if (CaptureService.instance != null) CaptureService.stop(this)
+            else startActivity(android.content.Intent(this, CaptureStartActivity::class.java))
+        }.margins(this, top = 12))
+        root.addView(text("접근성으로 글자가 안 읽히는 콜 앱에서만 필요해요. 지금: " + if (capOn) "켜짐" else "꺼짐", 14f, C.DIM))
+
+        root.addView(text("화면에 띄울 버튼", 18f, bold = true).margins(this, top = 16))
+        switchRow("콜 ON 버튼", store.showCallOn) { store.showCallOn = it }
+        switchRow("콜 확인 버튼", store.showCheckOn) { store.showCheckOn = it }
+        switchRow("수락 창이 뜨면 콜 확인 창 자동으로", store.autoCheck) { store.autoCheck = it }
+        root.addView(text("[콜 ON] 사용법: 한 번 톡 = 표시 켜기/끄기 · 끌기 = 옮기기 · 두 번 톡(또는 길게) = 메뉴(읽을 영역, 기억 지우기) · 맨 위 쓰레기통에 버리기 = 정지", 14f, C.DIM).margins(this, top = 6))
+        root.addView(button("버튼 위치 처음으로", outlined = true) {
+            store.resetBubble()
+            CallReaderService.instance?.resetBubble()
+            android.widget.Toast.makeText(this, "버튼을 처음 위치로 옮겼어요", android.widget.Toast.LENGTH_SHORT).show()
+        }.margins(this, top = 8))
+
+        root.addView(text("새로고침 방식", 18f, bold = true).margins(this, top = 16))
         root.addView(radios(listOf("터치할 때만 (화면을 만지면 다시 읽기)", "자동 + 터치 (화면이 바뀌면 저절로도 읽기)"), if (store.refreshAuto) 1 else 0) {
             store.refreshAuto = it == 1; live()
         })
-        root.addView(text("터치할 때만: 손대지 않으면 표시가 멈춰 있어 깜빡이지 않아요. 새 콜이 올라오면 화면을 톡 한 번 쳐 주세요.", 15f, C.DIM))
-
         root.addView(text("읽는 방식", 18f, bold = true).margins(this, top = 14))
         root.addView(radios(listOf("자동 (접근성 먼저, 안 되면 화면 캡처)", "접근성만", "화면 캡처(OCR)만"), store.readMode) {
             store.readMode = it; live()
         })
-        root.addView(text("'제일 좋음' 범위", 18f, bold = true).margins(this, top = 10))
+        root.addView(text("'제일 좋음' 범위", 18f, bold = true).margins(this, top = 14))
         root.addView(radios(listOf("지금 보이는 콜 중 최고", "스크롤로 지나온 콜 전체 중 최고"), if (store.bestAllSeen) 1 else 0) {
             store.bestAllSeen = it == 1; live()
         })
-        root.addView(text("전체 중 최고는 화면 위에 \"최고: 초지동 12,000 (736)\"처럼 보여 줘요. 둥근 버튼을 길게 누르면 기억을 지워요.", 15f, C.DIM))
-        root.addView(text("표시 방식", 18f, bold = true).margins(this, top = 10))
+
+        root.addView(text("표시 방식", 18f, bold = true).margins(this, top = 14))
         lateinit var alphaLabel: android.widget.TextView
         lateinit var alphaBar: android.widget.SeekBar
         root.addView(radios(listOf("터치 통과 (표시 위를 눌러도 콜이 눌려요)", "진하게 (누를 땐 둥근 버튼으로 숨기기)"), if (store.overlaySolid) 1 else 0) {
@@ -204,8 +230,7 @@ class SettingsActivity : AppCompatActivity() {
         alphaLabel = text("", 17f).margins(this, top = 10) as android.widget.TextView
         root.addView(alphaLabel)
         alphaBar = slider(20, 100, store.overlayAlpha) { v ->
-            val max = if (store.overlaySolid) 100 else 80
-            val fixed = minOf(v, max)
+            val fixed = minOf(v, if (store.overlaySolid) 100 else 80)
             store.overlayAlpha = fixed
             alphaLabel.text = "불투명도 $fixed%" + if (!store.overlaySolid) " (터치 통과는 최대 80%)" else ""
             live()
@@ -214,64 +239,24 @@ class SettingsActivity : AppCompatActivity() {
         alphaLabel.text = "불투명도 ${store.overlayAlpha}%" + if (!store.overlaySolid) " (터치 통과는 최대 80%)" else ""
         val sizeLabel = text("표시 글자 크기 ${store.overlayTextSp}", 17f).margins(this, top = 10) as android.widget.TextView
         root.addView(sizeLabel)
-        root.addView(slider(12, 30, store.overlayTextSp) { v ->
-            store.overlayTextSp = v
-            sizeLabel.text = "표시 글자 크기 $v"
-            live()
-        })
+        root.addView(slider(12, 30, store.overlayTextSp) { v -> store.overlayTextSp = v; sizeLabel.text = "표시 글자 크기 $v"; live() })
 
-        // 수락 창 자동 콜 확인
-        val autoRow = hbox().apply { margins(this@SettingsActivity, top = 12) }
-        autoRow.addView(text("수락 창이 뜨면 콜 확인 자동으로 띄우기", 17f), lp(0, weight = 1f))
-        autoRow.addView(MaterialSwitch(this).apply {
-            isChecked = store.autoCheck
-            setOnCheckedChangeListener { _, v -> store.autoCheck = v; live() }
-        })
-        root.addView(autoRow)
-        root.addView(text("수락 창을 열면 [콜 확인]을 안 눌러도 결과가 떠요. 창을 누르면 닫히고, 수락 창을 닫으면 같이 닫혀요.", 15f, C.DIM))
+        root.addView(text("화면 꺼짐", 18f, bold = true).margins(this, top = 14))
+        switchRow("콜 앱이 떠 있는 동안 화면 꺼짐 방지", store.keepScreenOn) { store.keepScreenOn = it }
+        switchRow("화면을 다시 켜면 캡처 시작 창 자동으로", store.autoAskCapture) { store.autoAskCapture = it }
 
-        // 화면 꺼짐 대응
-        fun switchRow(label: String, on: Boolean, set: (Boolean) -> Unit) {
-            val row = hbox().apply { margins(this@SettingsActivity, top = 12) }
-            row.addView(text(label, 17f), lp(0, weight = 1f))
-            row.addView(MaterialSwitch(this).apply {
-                isChecked = on
-                setOnCheckedChangeListener { _, v -> set(v); live() }
-            })
-            root.addView(row)
-        }
-        switchRow("감시하는 앱이 떠 있는 동안 화면 꺼짐 방지", store.keepScreenOn) { store.keepScreenOn = it }
-        root.addView(text("화면이 꺼지면 안드로이드가 화면 캡처를 끊어요. 켜 두면 콜 앱을 보는 동안은 화면이 저절로 꺼지지 않아요 (배터리 조금 더 씀).", 15f, C.DIM))
-        switchRow("화면을 다시 켜면 화면 캡처 시작 창 자동으로 띄우기", store.autoAskCapture) { store.autoAskCapture = it }
-        root.addView(text("화면이 꺼져서 캡처가 끊겼을 때, 잠금을 풀면 허락 창이 바로 떠요. [시작]만 누르면 돼요.", 15f, C.DIM))
-
-        // 읽을 영역
-        root.addView(text("읽을 영역 (네모)", 18f, bold = true).margins(this, top = 16))
-        root.addView(text("콜 앱에서 [콜 ON]을 두 번 톡(또는 길게) → [읽을 영역 정하기]. 네모 안만 읽어서 더 빨라요. 앱마다 따로 기억해요.\n지금 정해 둔 앱: ${store.regionCount()}개", 15f, C.DIM))
-        root.addView(button("읽을 영역 모두 지우기 (전체 화면으로)", outlined = true) {
+        root.addView(text("읽을 영역 (네모)", 18f, bold = true).margins(this, top = 14))
+        root.addView(text("콜 앱에서 [콜 ON] 두 번 톡 → [읽을 영역 정하기]. 지금 정해 둔 앱: ${store.regionCount()}개", 14f, C.DIM))
+        root.addView(button("읽을 영역 모두 지우기", outlined = true) {
             store.clearAllRegions(); live()
             android.widget.Toast.makeText(this, "읽을 영역을 모두 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
         }.margins(this, top = 6))
+        switchRow("속도 표시 (⏱ 걸린 시간)", store.showSpeed) { store.showSpeed = it }
+    }
 
-        // 오늘 통계
-        root.addView(text("오늘 통계 (맨 위 투명 글씨)", 18f, bold = true).margins(this, top = 16))
-        root.addView(text("하루 = 시작 시각 ~ 끝 시각. 밤을 넘기면 같은 하루로 묶고, 그 밖의 시간에 본 콜은 빼요. 같은 콜은 한 번만 세요.", 15f, C.DIM))
-        val hours = hbox().apply { margins(this@SettingsActivity, top = 6) }
-        hours.addView(text("시작", 17f))
-        hours.addView(hourField(store.statsStartHour) { store.statsStartHour = it; live() }, lp(dp(80)))
-        hours.addView(text("시  ~  끝", 17f))
-        hours.addView(hourField(store.statsEndHour) { store.statsEndHour = it; live() }, lp(dp(80)))
-        hours.addView(text("시 (0~23)", 17f))
-        root.addView(hours)
-        root.addView(button("오늘 통계 기록 지우기", outlined = true) {
-            CallReaderService.instance?.clearStats() ?: StatsStore(this, store).clear(); live()
-            android.widget.Toast.makeText(this, "통계 기록을 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
-        }.margins(this, top = 6))
-
-        // 콜 확인 (TMAP 길찾기)
-        root.addView(text("콜 확인 (픽업 도로 거리)", 18f, bold = true).margins(this, top = 16))
-        root.addView(text("상세 화면에서 [콜 확인]을 누르면 내 위치 → 출발지 도로 거리와 시간을 TMAP(실시간 교통)으로 계산해요. 누를 때만 출발지 이름과 내 위치를 TMAP에 보내요.", 15f, C.DIM))
-        val keyState = text("", 16f).margins(this, top = 6) as android.widget.TextView
+    private fun tmapSheet(root: LinearLayout) {
+        root.addView(text("수락 창에서 내 위치 → 출발지 → 도착지 실제 도로 거리·시간과 톨비를 TMAP으로 계산해요.", 15f, C.DIM))
+        val keyState = text("", 17f, bold = true).margins(this, top = 10) as android.widget.TextView
         fun showKeyState() { keyState.text = "TMAP 앱 키 " + if (store.tmapKey.isBlank()) "❌ 없음" else "✅ 들어 있음" }
         showKeyState()
         root.addView(keyState)
@@ -279,47 +264,31 @@ class SettingsActivity : AppCompatActivity() {
             addTextChangedListener(afterChange { store.tmapKey = it; showKeyState() })
         })
         val used = CallCheck.todayUsage(this)
-        root.addView(text("오늘 TMAP 사용: ${String.format(java.util.Locale.US, "%,d", used)}건 / 무료 10,000건 (이 폰에서 센 수, 자정에 0으로)", 15f,
-            if (used > 8000) C.WARN else C.SUB).margins(this, top = 6))
-        root.addView(text("정확한 공식 사용량은 SK오픈API → 대시보드 → 앱(계산기) → 통계 탭에서 볼 수 있어요.", 13f, C.DIM))
+        root.addView(text("오늘 TMAP 사용: ${String.format(java.util.Locale.US, "%,d", used)}건 / 무료 10,000건", 16f, if (used > 8000) C.WARN else C.SUB).margins(this, top = 10))
+        root.addView(text("이 폰에서 센 수예요. 공식 숫자는 SK오픈API → 앱(계산기) → 통계.", 13f, C.DIM))
+    }
 
-        // 버튼 위치
-        root.addView(button("버튼 위치 처음으로 (콜 ON 아래 가운데, 콜 확인 왼쪽 맨 위)", outlined = true) {
-            store.resetBubble()
-            CallReaderService.instance?.resetBubble()
-            android.widget.Toast.makeText(this, "버튼을 아래 가운데로 옮겼어요", android.widget.Toast.LENGTH_SHORT).show()
-        }.margins(this, top = 16))
+    private fun statsSheet(root: LinearLayout) {
+        root.addView(text("하루 = 시작 시각 ~ 끝 시각. 밤을 넘기면 같은 하루로 묶어요. 맨 위 통계 글씨와 날짜별 기록에 써요.", 15f, C.DIM))
+        root.addView(stepper("시작", "시", { store.statsStartHour.toDouble() }, 1.0, 0.0, 23.0) { it?.let { v -> store.statsStartHour = v.toInt(); live() } })
+        root.addView(stepper("끝", "시", { store.statsEndHour.toDouble() }, 1.0, 0.0, 23.0) { it?.let { v -> store.statsEndHour = v.toInt(); live() } })
+        root.addView(button("오늘 통계 기록 지우기", outlined = true) {
+            CallReaderService.instance?.clearStats() ?: StatsStore(this, store).clear(); live()
+            android.widget.Toast.makeText(this, "통계 기록을 지웠어요", android.widget.Toast.LENGTH_SHORT).show()
+        }.margins(this, top = 14))
+    }
 
-        // ── 권한 ──
-        root.addView(sectionTitle("권한"))
-        permBox = vbox()
-        root.addView(permBox)
-
-        // ── 기타 ──
-        root.addView(sectionTitle("기타"))
-        val speedRow = hbox()
-        speedRow.addView(text("속도 표시 (⏱ 걸린 시간)", 18f), lp(0, weight = 1f))
-        speedRow.addView(MaterialSwitch(this).apply {
-            isChecked = store.showSpeed
-            setOnCheckedChangeListener { _, on -> store.showSpeed = on }
+    private fun updateSheet(root: LinearLayout) {
+        root.addView(text("지금 버전: " + Updater.versionText(this), 17f, bold = true))
+        root.addView(button("⟳ 업데이트 확인", big = true) { Updater.check(this, quiet = false) }.margins(this, top = 8))
+        root.addView(text("브라우저로 받기", 15f, C.ACCENT).apply {
+            setPadding(0, dp(12), 0, 0)
+            setOnClickListener { Updater.openInBrowser(this@SettingsActivity) }
         })
-        root.addView(speedRow)
-
-        // ── 업데이트 ──
-        root.addView(sectionTitle("업데이트"))
-        val upRow = hbox()
-        upRow.addView(text("켤 때 새 버전 자동 확인", 18f), lp(0, weight = 1f))
-        upRow.addView(MaterialSwitch(this).apply {
-            isChecked = store.autoUpdate
-            setOnCheckedChangeListener { _, on -> store.autoUpdate = on }
-        })
-        root.addView(upRow)
-        root.addView(text("인터넷은 새 버전 확인과 받기에만 써요. 읽은 콜 내용은 밖으로 보내지 않아요.", 15f, C.DIM).margins(this, top = 6))
-
-        root.addView(text("콜 앱에 따라 약관으로 보조 프로그램 사용을 금지할 수 있으니, 쓰기 전에 확인하세요.", 13f, C.GRAY).margins(this, top = 24))
-
-        // 주제별로 접어 두기 (제목을 누르면 펼침). 맨 위 버튼 체크칸·업데이트 확인은 항상 보임
-        makeCurtains(root, getSharedPreferences("ui", MODE_PRIVATE))
+        val row = hbox().apply { gravity = Gravity.CENTER_VERTICAL; margins(this@SettingsActivity, top = 12) }
+        row.addView(text("켤 때 새 버전 자동 확인", 17f), lp(0, weight = 1f))
+        row.addView(MaterialSwitch(this).apply { isChecked = store.autoUpdate; setOnCheckedChangeListener { _, on -> store.autoUpdate = on } })
+        root.addView(row)
     }
 
     // ───────── 계산식 ─────────

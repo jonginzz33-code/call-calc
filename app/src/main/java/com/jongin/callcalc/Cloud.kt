@@ -48,6 +48,104 @@ object Cloud {
     fun recordOn(ctx: Context) = prefs(ctx).getBoolean("recordOn", true)
     fun setRecordOn(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("recordOn", v).apply()
 
+    // ───────── 관리자가 정하는 것 (이 폰에 저장해 두고 씀) ─────────
+
+    /** 기능 이름: A 오더, B 뒷방, check 콜 확인, record 기록, team 팀 */
+    val FEATURES = listOf("A" to "A 오더", "B" to "B 뒷방", "check" to "콜 확인 (TMAP)", "record" to "콜 기록", "team" to "팀 (2인 1조)")
+
+    fun banned(ctx: Context) = prefs(ctx).getBoolean("banned", false)
+
+    /** 관리자가 막지 않았으면 true (로그인 안 했으면 다 허용) */
+    fun allowed(ctx: Context, feature: String): Boolean {
+        val p = prefs(ctx)
+        return !p.getBoolean("banned", false) && p.getBoolean("f_$feature", true)
+    }
+
+    fun isAdmin(ctx: Context) = signedIn && prefs(ctx).getString("adminUid", null) == uid
+
+    /**
+     * 내 정보 올리기 (관리자 화면에 보이는 것: 이름, 메일, 모드, 버전, 마지막 접속, 폰 권한 상태)
+     * + 관리자가 정한 기능 허락·접근 금지를 받아서 이 폰에 저장. done 은 바뀐 게 있으면 true
+     */
+    fun sync(ctx: Context, perms: Map<String, Boolean>, mode: String, version: String, done: ((Boolean) -> Unit)? = null) {
+        val me = uid ?: return
+        val p = prefs(ctx)
+        val ref = db.collection("users").document(me)
+        ref.set(mapOf(
+            "name" to displayName,
+            "email" to auth.currentUser?.email,
+            "mode" to mode,
+            "version" to version,
+            "lastSeen" to System.currentTimeMillis(),
+            "perms" to perms,
+        ), com.google.firebase.firestore.SetOptions.merge())
+        ref.get().addOnSuccessListener { d ->
+            val before = p.all.filterKeys { it == "banned" || it.startsWith("f_") }
+            val e = p.edit().putBoolean("banned", d.getBoolean("banned") == true)
+            @Suppress("UNCHECKED_CAST")
+            val f = d.get("features") as? Map<String, Any?> ?: emptyMap()
+            for ((k, _) in FEATURES) e.putBoolean("f_$k", f[k] != false)
+            e.apply()
+            val after = p.all.filterKeys { it == "banned" || it.startsWith("f_") }
+            db.collection("config").document("admin").get()
+                .addOnSuccessListener { a -> p.edit().putString("adminUid", a.getString("uid")).putBoolean("adminSet", a.exists()).apply() }
+                .addOnCompleteListener { done?.invoke(before != after) }
+        }
+    }
+
+    /** 관리자가 아직 없음 (처음 한 번 [관리자로 등록]) */
+    fun adminMissing(ctx: Context) = !prefs(ctx).getBoolean("adminSet", true)
+
+    fun claimAdmin(ctx: Context, done: (String?) -> Unit) {
+        val me = uid ?: return done("먼저 로그인해 주세요")
+        db.collection("config").document("admin").set(mapOf("uid" to me, "email" to auth.currentUser?.email))
+            .addOnSuccessListener { prefs(ctx).edit().putString("adminUid", me).putBoolean("adminSet", true).apply(); done(null) }
+            .addOnFailureListener { done("이미 관리자가 있어요") }
+    }
+
+    // ───────── 관리자 화면용 ─────────
+
+    data class Person(val uid: String, val data: Map<String, Any?>) {
+        val name get() = data["name"] as? String ?: "(이름 없음)"
+        val email get() = data["email"] as? String ?: ""
+        val banned get() = data["banned"] == true
+        @Suppress("UNCHECKED_CAST") val perms get() = data["perms"] as? Map<String, Any?> ?: emptyMap()
+        @Suppress("UNCHECKED_CAST") val features get() = data["features"] as? Map<String, Any?> ?: emptyMap()
+        val lastSeen get() = (data["lastSeen"] as? Number)?.toLong() ?: 0L
+    }
+
+    fun loadPeople(done: (List<Person>?, String?) -> Unit) {
+        db.collection("users").get()
+            .addOnSuccessListener { q -> done(q.documents.map { Person(it.id, it.data.orEmpty()) }.sortedByDescending { it.lastSeen }, null) }
+            .addOnFailureListener { done(null, failText(it)) }
+    }
+
+    fun setPerson(uid: String, fields: Map<String, Any?>, done: (String?) -> Unit) {
+        db.collection("users").document(uid).set(fields, com.google.firebase.firestore.SetOptions.merge())
+            .addOnSuccessListener { done(null) }.addOnFailureListener { done(failText(it)) }
+    }
+
+    data class Team(val code: String, val data: Map<String, Any?>) {
+        @Suppress("UNCHECKED_CAST") val names get() = data["names"] as? Map<String, Any?> ?: emptyMap()
+        @Suppress("UNCHECKED_CAST") val members get() = data["members"] as? List<String> ?: emptyList()
+    }
+
+    fun loadTeams(done: (List<Team>?, String?) -> Unit) {
+        db.collection("teams").get()
+            .addOnSuccessListener { q -> done(q.documents.map { Team(it.id, it.data.orEmpty()) }, null) }
+            .addOnFailureListener { done(null, failText(it)) }
+    }
+
+    fun removeMember(code: String, member: String, done: () -> Unit) {
+        db.collection("teams").document(code).update(mapOf(
+            "members" to FieldValue.arrayRemove(member), "names.$member" to FieldValue.delete(),
+        )).addOnCompleteListener { done() }
+    }
+
+    fun deleteTeam(code: String, done: () -> Unit) {
+        db.collection("teams").document(code).delete().addOnCompleteListener { done() }
+    }
+
     // ───────── 로그인 ─────────
 
     fun signIn(a: Activity, done: (String?) -> Unit) {
@@ -77,6 +175,7 @@ object Cloud {
 
     fun signOut(ctx: Context) {
         auth.signOut()
+        prefs(ctx).edit().remove("adminUid").apply() // 접근 금지는 로그아웃해도 그대로
         CallReaderService.instance?.cloudChanged()
     }
 
@@ -165,16 +264,16 @@ object Cloud {
         fun str(k: String): String? = data[k] as? String
     }
 
-    fun loadCalls(done: (List<Call>?, String?) -> Unit) {
-        val me = uid ?: return done(null, "먼저 구글 로그인을 해 주세요")
+    fun loadCalls(of: String? = null, done: (List<Call>?, String?) -> Unit) {
+        val me = of ?: uid ?: return done(null, "먼저 구글 로그인을 해 주세요")
         db.collection("users").document(me).collection("calls")
             .orderBy("at", Query.Direction.DESCENDING).limit(2000).get()
             .addOnSuccessListener { q -> done(q.documents.map { Call(it.id, it.data.orEmpty()) }, null) }
             .addOnFailureListener { done(null, failText(it)) }
     }
 
-    fun deleteCall(id: String, done: () -> Unit) {
-        val me = uid ?: return done()
+    fun deleteCall(id: String, of: String? = null, done: () -> Unit) {
+        val me = of ?: uid ?: return done()
         db.collection("users").document(me).collection("calls").document(id).delete().addOnCompleteListener { done() }
     }
 

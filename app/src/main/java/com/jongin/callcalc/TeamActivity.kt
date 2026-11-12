@@ -47,7 +47,12 @@ class TeamActivity : AppCompatActivity() {
             login.addView(text("구글 로그인", 19f, bold = true))
             login.addView(text("팀 맺기와 기록 올리기에 필요해요.", 14f, C.DIM))
             login.addView(button("구글로 로그인", big = true) {
-                Cloud.signIn(this) { err -> if (err != null) toast(err) else { toast("${Cloud.displayName}님 로그인 완료"); render() } }
+                Cloud.signIn(this) { err ->
+                    if (err != null) toast(err) else {
+                        toast("${Cloud.displayName}님 로그인 완료"); render()
+                        Cloud.sync(this, PermissionGuide.snapshot(this), Store(this).mode, BuildConfig.VERSION_NAME) { render() }
+                    }
+                }
             }.margins(this, top = 10))
             root.addView(login)
             return
@@ -57,13 +62,21 @@ class TeamActivity : AppCompatActivity() {
             setPadding(0, dp(8), 0, 0)
             setOnClickListener { Cloud.signOut(this@TeamActivity); render() }
         })
+        if (Cloud.adminMissing(this)) {
+            login.addView(button("🛡 관리자로 등록 (처음 한 번, 사장님만)", outlined = true) {
+                Cloud.claimAdmin(this) { err -> toast(err ?: "관리자로 등록했어요. 첫 화면 위에 [🛡 관리자]가 생겨요"); render() }
+            }.margins(this, top = 10))
+        }
         root.addView(login)
+        if (Cloud.banned(this)) { root.addView(text("⛔ 사용이 막혀 있어요. 관리자에게 문의하세요.", 17f, C.BAD, bold = true).margins(this, top = 14)); return }
 
         // ── 팀 ──
         val team = card()
         team.addView(text("팀 (A가 수락하면 B에게 알림)", 19f, bold = true))
         val code = Cloud.teamCode(this)
-        if (code == null) {
+        if (!Cloud.allowed(this, "team")) {
+            team.addView(text("관리자가 팀 기능을 막아 두었어요.", 15f, C.WARN).margins(this, top = 4))
+        } else if (code == null) {
             team.addView(text("한 사람이 [팀 만들기]로 코드를 만들고, 다른 사람이 그 코드를 넣으면 짝이 돼요.", 14f, C.DIM).margins(this, top = 4))
             team.addView(button("팀 만들기 (코드 받기)") {
                 Cloud.createTeam(this) { c, err -> if (err != null) toast(err) else { toast("팀을 만들었어요: $c"); render() } }

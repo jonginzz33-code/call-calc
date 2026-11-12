@@ -138,7 +138,20 @@ object PermissionGuide {
         main.postDelayed(r, 800)
     }
 
-    fun missing(a: Activity): List<Perm> = all().filter { p -> runCatching { !p.granted(a) }.getOrDefault(false) }
+    /** 모드에 필요한 권한만. B 뒷방은 화면을 안 읽으니 접근성·위치 필요 없음 */
+    fun forMode(mode: String): List<Perm> =
+        if (mode == "B") listOf(installApps, notifications) else all()
+
+    fun missing(a: Activity): List<Perm> = forMode(Store(a).mode).filter { p -> runCatching { !p.granted(a) }.getOrDefault(false) }
+
+    /** 관리자 화면에 올릴 폰 권한 상태 */
+    fun snapshot(a: Activity): Map<String, Boolean> = mapOf(
+        "접근성" to isAccessibilityOn(a),
+        "캡처" to (CaptureService.instance != null),
+        "위치" to CallCheck.hasLocationPermission(a),
+        "알림" to Share.notificationsAllowed(a),
+        "앱 설치" to a.packageManager.canRequestPackageInstalls(),
+    )
 
     /** 안내 창. later 는 [나중에]를 눌렀을 때 */
     fun show(a: Activity, missing: List<Perm>, later: () -> Unit): AlertDialog {

@@ -1,38 +1,55 @@
 rules_version = '2';
-// 계산기 서버 규칙 (Firebase 콘솔 → Firestore Database → 규칙 에 붙여 넣고 [게시])
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // 내 콜 기록: 나만 읽고 쓰기
-    match /users/{uid}/calls/{id} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/config/admin)
+        && get(/databases/$(database)/documents/config/admin).data.uid == request.auth.uid;
+    }
+    function notBanned() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('banned', false) != true;
     }
 
-    // 팀 (2인 1조)
-    match /teams/{code} {
-      function signedIn() { return request.auth != null; }
-      function isMember() { return signedIn() && request.auth.uid in resource.data.members; }
+    match /config/admin {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
 
-      allow read: if isMember();
-      // 만들기: 나 혼자 들어 있는 팀
-      allow create: if signedIn()
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid
+        && !request.resource.data.keys().hasAny(['banned', 'features']);
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['banned', 'features']));
+      allow delete: if isAdmin();
+
+      match /calls/{id} {
+        allow read, delete: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if signedIn() && request.auth.uid == uid && notBanned();
+      }
+    }
+
+    match /teams/{code} {
+      function isMember() { return signedIn() && request.auth.uid in resource.data.members; }
+      allow read: if isMember() || isAdmin();
+      allow create: if signedIn() && notBanned()
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.members == [request.auth.uid];
-      // 들어가기(코드 넣기): 나만 추가, 다른 칸은 그대로 / 팀원은 바꾸기·나가기 가능
-      allow update: if isMember() || (signedIn()
+      allow update: if isMember() || isAdmin() || (signedIn() && notBanned()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'names'])
         && request.resource.data.members.removeAll(resource.data.members) == [request.auth.uid]
         && resource.data.members.size() < 4);
-      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+      allow delete: if isAdmin() || (signedIn() && resource.data.owner == request.auth.uid);
 
-      // 수락한 콜 알림: 팀원만
       match /shares/{id} {
         function member() {
-          return request.auth != null
+          return signedIn()
             && request.auth.uid in get(/databases/$(database)/documents/teams/$(code)).data.members;
         }
-        allow read, delete: if member();
-        allow create: if member() && request.resource.data.from == request.auth.uid;
+        allow read, delete: if member() || isAdmin();
+        allow create: if member() && notBanned() && request.resource.data.from == request.auth.uid;
       }
     }
   }

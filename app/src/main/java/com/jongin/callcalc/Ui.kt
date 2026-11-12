@@ -248,16 +248,64 @@ fun Context.pickupSlider(store: Store, onChange: () -> Unit): LinearLayout {
         override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
         override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
     })
-    val quick = hbox().apply { layoutParams = lp().also { it.topMargin = dp(8) } }
-    for (m in listOf(2, 3, 5)) {
-        quick.addView(text("${m}분", 16f, C.ACCENT, bold = true).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(8))
-            background = roundBg(C.PANEL, C.BTN, 2, 10)
-            setOnClickListener { set(m) }
-        }, lp(0, weight = 1f).also { it.setMargins(dp(3), 0, dp(3), 0) })
-    }
-    box.addView(quick)
     show()
     return box
+}
+
+/**
+ * 밑에서 올라오는 설정 창. build 에 그 주제의 설정만 넣는다. 창 바깥을 누르거나 아래로 끌면 닫힘.
+ */
+fun android.app.Activity.sheet(title: String, onClose: () -> Unit = {}, build: (LinearLayout) -> Unit) {
+    val d = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+    val content = vbox(18)
+    val head = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+    head.addView(text(title, 22f, bold = true), lp(0, weight = 1f))
+    head.addView(text("✕", 24f, C.SUB).apply { setPadding(dp(16), dp(4), dp(4), dp(4)); setOnClickListener { d.dismiss() } })
+    content.addView(head)
+    build(content)
+    content.addView(button("완료", big = true) { d.dismiss() }.margins(this, top = 18))
+    val scroll = androidx.core.widget.NestedScrollView(this).apply {
+        addView(content)
+        background = GradientDrawable().apply {
+            setColor(C.BG)
+            val r = dp(20).toFloat()
+            cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        }
+    }
+    d.setContentView(scroll)
+    d.setOnShowListener {
+        d.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        d.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        d.behavior.skipCollapsed = true
+    }
+    d.setOnDismissListener { onClose() }
+    d.show()
+}
+
+/** [-] 값 [+] 줄. 값을 누르면 직접 입력 */
+fun android.app.Activity.stepper(label: String, unit: String, get: () -> Double?, step: Double, min: Double, max: Double, set: (Double?) -> Unit): LinearLayout {
+    val row = hbox().apply { gravity = Gravity.CENTER_VERTICAL; layoutParams = lp().also { it.topMargin = dp(10) } }
+    row.addView(text(label, 17f), lp(0, weight = 1f))
+    val v = text("", 18f, C.GOOD, bold = true).apply { gravity = Gravity.CENTER; setPadding(dp(8), 0, dp(8), 0) }
+    fun show() { v.text = get()?.let { com.jongin.callcalc.core.formatNumber(it) + unit } ?: "안 씀" }
+    fun btn(s: String, d: Double) = text(s, 22f, C.ACCENT, bold = true).apply {
+        gravity = Gravity.CENTER
+        background = roundBg(Color.parseColor("#1F252E"), C.BTN, 2, 10)
+        layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
+        setOnClickListener { set(((get() ?: min) + d).coerceIn(min, max)); show() }
+    }
+    row.addView(btn("−", -step))
+    row.addView(v)
+    row.addView(btn("+", step))
+    v.setOnClickListener {
+        val e = android.widget.EditText(this).apply {
+            setText(get()?.let { Store.plain(it) } ?: ""); textSize = 22f; setTextColor(C.FG)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(label).setView(vbox(20).apply { addView(e) })
+            .setPositiveButton("저장") { _, _ -> set(e.text.toString().replace(",", "").toDoubleOrNull()); show() }
+            .setNegativeButton("취소", null).show()
+    }
+    show()
+    return row
 }

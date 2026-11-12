@@ -11,6 +11,7 @@ import org.json.JSONObject
 
 /** 설정 저장 (SharedPreferences). 계산식과 지역 단어 목록은 JSON 으로 */
 class Store(context: Context) {
+    private val ctx = context.applicationContext
     private val p = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var formulas: List<Formula>
@@ -238,9 +239,20 @@ class Store(context: Context) {
     fun resetBubble() = p.edit().putInt("bubbleX", -1).putInt("bubbleY", -1).putInt("checkX", -1).putInt("checkY", -1).apply()
 
     /** [앱 종료]를 누른 상태. 앱을 다시 열면 false */
+    /** [▶ 시작] 상태. 앱을 열어도 저절로 켜지지 않음 */
+    var running: Boolean
+        get() = p.getBoolean("running", !p.getBoolean("paused", false))
+        set(v) = p.edit().putBoolean("running", v).apply()
+
+    /** 모드: "A" 오더 (콜 읽기·계산·수락하면 보내기) / "B" 뒷방 (받은 콜 알림만) */
+    var mode: String
+        get() = p.getString("mode", "A")!!
+        set(v) = p.edit().putString("mode", v).apply()
+
+    /** 콜 앱 위 읽기·표시를 쉬는 중 (정지, B 뒷방, 관리자가 막음). paused = true 로 두면 [■ 정지] */
     var paused: Boolean
-        get() = p.getBoolean("paused", false)
-        set(v) = p.edit().putBoolean("paused", v).apply()
+        get() = !(running && mode == "A") || !Cloud.allowed(ctx, "A")
+        set(v) { running = !v }
 
     var keepScreenOn: Boolean
         get() = p.getBoolean("keepScreenOn", true)

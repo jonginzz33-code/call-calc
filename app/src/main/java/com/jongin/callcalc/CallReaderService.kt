@@ -537,6 +537,7 @@ class CallReaderService : AccessibilityService() {
     private fun prefetch(d: com.jongin.callcalc.core.CallDetail) {
         lastDetail = d
         lastDetailAt = SystemClock.uptimeMillis()
+        if (!Cloud.allowed(this, "check")) return // 관리자가 콜 확인을 막음
         if (store.autoCheck) {
             val k = jobKey(d)
             if (k != dismissedKey && (shownJobKey != k || !overlay.resultShowing)) {
@@ -656,12 +657,10 @@ class CallReaderService : AccessibilityService() {
     private var lastSentAt = 0L
     private var teamListener: com.google.firebase.firestore.ListenerRegistration? = null
 
-    /** 로그인·팀이 바뀌면 팀 알림 듣기를 다시 */
+    /** 로그인·팀이 바뀌면: 팀 알림 듣기는 B 뒷방(BackroomService)이 맡음 */
     fun cloudChanged() {
         teamListener?.remove(); teamListener = null
-        if (Cloud.signedIn && Cloud.teamCode(this) != null) {
-            teamListener = runCatching { Cloud.listen(this) { id, data -> Share.notify(this, id, data) } }.getOrNull()
-        }
+        BackroomService.instance?.relisten()
     }
 
     /** 눌린 버튼이 [수락] 버튼인지 (글자로 판단) */
@@ -680,8 +679,8 @@ class CallReaderService : AccessibilityService() {
         val now = SystemClock.uptimeMillis()
         if (d == null) { done?.invoke("최근에 읽은 수락 창이 없어요 (수락 창을 한 번 띄운 뒤 시험해 주세요)"); return }
         if (!test && now - lastDetailAt > 120_000) return
-        val share = Cloud.signedIn && Cloud.teamCode(this) != null && (test || Cloud.shareOn(this))
-        val rec = !test && Cloud.signedIn && Cloud.recordOn(this)
+        val share = Cloud.signedIn && Cloud.teamCode(this) != null && (test || Cloud.shareOn(this)) && Cloud.allowed(this, "team")
+        val rec = !test && Cloud.signedIn && Cloud.recordOn(this) && Cloud.allowed(this, "record")
         if (!share && !rec) { done?.invoke(if (!Cloud.signedIn) "로그인이 안 되어 있어요" else "팀이 없어요"); return }
         val k = jobKey(d)
         if (!test && k == lastSentKey && now - lastSentAt < 180_000) return // 같은 콜 두 번 안 보냄

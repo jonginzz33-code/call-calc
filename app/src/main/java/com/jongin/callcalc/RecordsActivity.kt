@@ -18,6 +18,8 @@ class RecordsActivity : AppCompatActivity() {
     private lateinit var store: Store
     private val open = mutableSetOf<LocalDate>()
     private var calls: List<Cloud.Call> = emptyList()
+    private val who: String? get() = intent.getStringExtra("uid")       // 관리자가 다른 사람 기록을 볼 때
+    private val whoName: String? get() = intent.getStringExtra("name")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,7 +33,7 @@ class RecordsActivity : AppCompatActivity() {
         root.removeAllViews()
         root.addView(text("📊 날짜별 기록", 26f, bold = true))
         root.addView(text("불러오는 중…", 15f, C.SUB).margins(this, top = 8))
-        Cloud.loadCalls { list, err ->
+        Cloud.loadCalls(who) { list, err ->
             if (list == null) { root.removeAllViews(); root.addView(text(err ?: "못 불러왔어요", 16f, C.WARN)); return@loadCalls }
             calls = list
             render()
@@ -42,7 +44,7 @@ class RecordsActivity : AppCompatActivity() {
 
     private fun render() {
         root.removeAllViews()
-        root.addView(text("📊 날짜별 기록", 26f, bold = true))
+        root.addView(text("📊 날짜별 기록" + (whoName?.let { " · $it" } ?: ""), 26f, bold = true))
         root.addView(text("하루 = ${store.statsStartHour}시 ~ 다음 날 ${store.statsEndHour}시 · 날짜를 누르면 콜 목록 · 콜을 길게 누르면 지우기", 13f, C.DIM).margins(this, top = 4))
         if (calls.isEmpty()) { root.addView(text("아직 기록이 없어요. 콜을 수락하면 여기 쌓여요.", 16f, C.SUB).margins(this, top = 16)); return }
         val zone = ZoneId.systemDefault()
@@ -84,7 +86,7 @@ class RecordsActivity : AppCompatActivity() {
                             MaterialAlertDialogBuilder(this@RecordsActivity)
                                 .setTitle("이 기록을 지울까요?")
                                 .setMessage(line)
-                                .setPositiveButton("지우기") { _, _ -> Cloud.deleteCall(c.id) { load() } }
+                                .setPositiveButton("지우기") { _, _ -> Cloud.deleteCall(c.id, who) { load() } }
                                 .setNegativeButton("취소", null).show()
                             true
                         }

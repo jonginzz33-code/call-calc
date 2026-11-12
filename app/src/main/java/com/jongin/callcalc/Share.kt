@@ -94,53 +94,82 @@ object Share {
         }
     }
 
-    /** 받은 알림을 파일로 보관 (알림을 눌렀을 때 보여 주기) */
-    private fun save(ctx: Context, id: String, data: Map<String, Any?>): File? {
+    /** 받은 사진을 파일로 보관 (알림·뒷방 화면에서 보여 주기). 하루 지난 건 지움 */
+    private fun saveImage(ctx: Context, id: String, data: Map<String, Any?>): File? {
         val img = data["image"] as? String ?: return null
         return runCatching {
-            val dir = File(ctx.cacheDir, "shares").apply { mkdirs() }
+            val dir = File(ctx.filesDir, "shares").apply { mkdirs() }
             dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 24 * 3600_000L }?.forEach { it.delete() }
             File(dir, "$id.jpg").apply { writeBytes(Base64.decode(img, Base64.DEFAULT)) }
         }.getOrNull()
     }
 
-    fun notify(ctx: Context, id: String, data: Map<String, Any?>) {
+    /** 받은 콜 한 건 (사진은 파일 경로로) */
+    fun record(ctx: Context, id: String, data: Map<String, Any?>): org.json.JSONObject {
+        val file = saveImage(ctx, id, data)
+        val o = org.json.JSONObject()
+        o.put("id", id)
+        o.put("at", (data["at"] as? Number)?.toLong() ?: System.currentTimeMillis())
+        for (k in listOf("fromName", "origin", "destination", "destName", "originName", "warn")) (data[k] as? String)?.let { o.put(k, it) }
+        for (k in listOf("destX", "destY", "originX", "originY", "price", "perMinute", "rideMin")) (data[k] as? Number)?.let { o.put(k, it.toDouble()) }
+        if (data["test"] == true) o.put("test", true)
+        file?.let { o.put("image", it.absolutePath) }
+        return o
+    }
+
+    // 뒷방: 받은 콜 목록 (이 폰에만, 최근 50건)
+    private fun recvPrefs(ctx: Context) = ctx.getSharedPreferences("received", Context.MODE_PRIVATE)
+
+    fun saveReceived(ctx: Context, o: org.json.JSONObject) {
+        val arr = runCatching { org.json.JSONArray(recvPrefs(ctx).getString("list", "[]")) }.getOrDefault(org.json.JSONArray())
+        val out = org.json.JSONArray().put(o)
+        for (i in 0 until minOf(arr.length(), 49)) out.put(arr.get(i))
+        recvPrefs(ctx).edit().putString("list", out.toString()).apply()
+    }
+
+    fun received(ctx: Context): List<org.json.JSONObject> {
+        val arr = runCatching { org.json.JSONArray(recvPrefs(ctx).getString("list", "[]")) }.getOrDefault(org.json.JSONArray())
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+    }
+
+    /** 받은 콜 화면 열기 */
+    fun openIntent(ctx: Context, o: org.json.JSONObject) = Intent(ctx, ShareActivity::class.java).apply {
+        putExtra("json", o.toString())
+    }
+
+    fun navFor(ctx: Context, o: org.json.JSONObject, dest: Boolean = true): Intent {
+        val p = if (dest) "dest" else "origin"
+        val addr = o.optString(if (dest) "destination" else "origin")
+        return nav(ctx, o.optString("${p}Name").ifEmpty { null },
+            if (o.has("${p}X")) o.getDouble("${p}X") else null, if (o.has("${p}Y")) o.getDouble("${p}Y") else null, addr)
+    }
+
+    /** 팀원이 수락한 콜 알림. loud = 뒷방: 화면 켜기 + 전체 화면 알림 */
+    fun notify(ctx: Context, o: org.json.JSONObject, loud: Boolean) {
         channel(ctx)
-        val file = save(ctx, id, data)
-        val from = data["fromName"] as? String ?: "팀원"
-        val dest = data["destination"] as? String ?: ""
-        val origin = data["origin"] as? String ?: ""
-        val warn = data["warn"] as? String
-        val open = Intent(ctx, ShareActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("from", from); putExtra("origin", origin); putExtra("destination", dest)
-            putExtra("destName", data["destName"] as? String); putExtra("originName", data["originName"] as? String)
-            (data["destX"] as? Number)?.let { putExtra("destX", it.toDouble()) }
-            (data["destY"] as? Number)?.let { putExtra("destY", it.toDouble()) }
-            (data["originX"] as? Number)?.let { putExtra("originX", it.toDouble()) }
-            (data["originY"] as? Number)?.let { putExtra("originY", it.toDouble()) }
-            putExtra("price", (data["price"] as? Number)?.toDouble() ?: 0.0)
-            putExtra("warn", warn)
-            putExtra("image", file?.absolutePath)
-        }
-        val code = id.hashCode()
-        val pi = PendingIntent.getActivity(ctx, code, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val navI = nav(ctx, data["destName"] as? String, (data["destX"] as? Number)?.toDouble(), (data["destY"] as? Number)?.toDouble(), dest)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val navPi = PendingIntent.getActivity(ctx, code + 1, navI, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val from = o.optString("fromName", "팀원")
+        val dest = o.optString("destination")
+        val warn = o.optString("warn").ifEmpty { null }
+        val code = o.optString("id").hashCode()
+        val pi = PendingIntent.getActivity(ctx, code, openIntent(ctx, o).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val navPi = PendingIntent.getActivity(ctx, code + 1, navFor(ctx, o).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val text = listOfNotNull("도착: $dest", warn).joinToString("\n")
         val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_dialog_map)
-            .setContentTitle("🚗 $from 콜 수락")
+            .setContentTitle((if (o.optBoolean("test")) "🧪 시험 · " else "🚗 ") + "$from 콜 수락")
             .setContentText("도착: $dest")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(pi)
             .addAction(0, "TMAP 길안내 (도착)", navPi)
-        val bmp = file?.let { runCatching { BitmapFactory.decodeFile(it.absolutePath) }.getOrNull() }
+        if (loud) b.setFullScreenIntent(pi, true)
+        val bmp = o.optString("image").ifEmpty { null }?.let { runCatching { BitmapFactory.decodeFile(it) }.getOrNull() }
         if (bmp != null) b.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bmp).setSummaryText(text))
-        else b.setStyle(NotificationCompat.BigTextStyle().bigText("출발: $origin\n$text"))
+        else b.setStyle(NotificationCompat.BigTextStyle().bigText("출발: ${o.optString("origin")}\n$text"))
         runCatching { ctx.getSystemService(NotificationManager::class.java).notify(code, b.build()) }
     }
 
