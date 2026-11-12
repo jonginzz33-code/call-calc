@@ -9,6 +9,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
-      - uses: android-actions/setup-android@v3
       - run: chmod +x gradlew && ./gradlew :app:testDebugUnitTest --tests "com.jongin.callcalc.LaunchTest" || true
       - run: python3 -c "import glob,re;[print(re.sub(r'&#10;|&quot;','\n',m)[:6000]) for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml') for m in re.findall(r'<failure[^>]*>(.*?)</failure>',open(f).read(),re.S)]"
