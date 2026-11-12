@@ -164,7 +164,15 @@ object CallCheck {
     private fun findPlace(place: String, key: String, near: Point?): Point? {
         val qs = DetailParser.searchQueries(place)
         if (qs.isEmpty()) return null
+        // 번지·도로명 주소면 주소 → 위치 검색을 같이 (더 정확). 장소 검색과 동시에 돌리고 이걸 먼저 씀
+        val addr = DetailParser.addressQuery(place)
+        val geoF = addr?.let { qpool.submit<Point?> { geocode(it, key) } }
         val first = qs.take(2).map { q -> qpool.submit<Point?> { searchOne(q, key, near) } }
+        if (geoF != null) {
+            val g = runCatching { geoF.get(8, TimeUnit.SECONDS) }.getOrNull()
+            // 같은 동 이름이 다른 도시에도 있을 수 있어서, 내 위치에서 너무 멀면(80km) 버림
+            if (g != null && (near == null || distanceKm(near, g) < 80)) return g
+        }
         var problem: Problem? = null
         for (f in first) {
             try {
@@ -176,6 +184,16 @@ object CallCheck {
         problem?.let { throw it }
         for (q in qs.drop(2)) searchOne(q, key, near)?.let { return it }
         return null
+    }
+
+    /** TMAP 주소 → 위치 (지번·도로명) */
+    private fun geocode(addr: String, key: String): Point? {
+        val url = "$API/geo/fullAddrGeo?version=1&addressFlag=F00&coordType=WGS84GEO&fullAddr=${URLEncoder.encode(addr, "UTF-8")}"
+        val j = request(url, key, null) ?: return null
+        val c = j.optJSONObject("coordinateInfo")?.optJSONArray("coordinate")?.optJSONObject(0) ?: return null
+        val lat = c.optString("lat").ifEmpty { c.optString("newLat") }.toDoubleOrNull() ?: return null
+        val lon = c.optString("lon").ifEmpty { c.optString("newLon") }.toDoubleOrNull() ?: return null
+        return Point(lon, lat, addr)
     }
 
     private fun searchOne(q: String, key: String, near: Point?): Point? {

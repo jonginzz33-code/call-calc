@@ -207,20 +207,50 @@ object DetailParser {
 
     /**
      * 내비 검색용으로 주소 다듬기:
-     * - 특수 문자(♥ @ \ / | # * ~ ^ 등) 빼기, 점·쉼표는 띄어쓰기로
-     * - 아파트 동·호수(114동), 층, "근처" 빼기
+     * - 결제 메모(/카드, /현금) 빼기, 앞의 "2)" 같은 번호 빼기
+     * - 특수 문자(♥ @ \\ / | # * ~ ^ ( ) = 등) 빼기, 점·쉼표는 띄어쓰기로
+     * - 아파트 동·호수(114동), 층, "근처" 빼기, 단어 끝의 부근·근처·건너편·맞은편 떼기
+     * - 도로명과 번지 띄우기 (강촌로191 → 강촌로 191), 혼자 남은 1~2자리 숫자 빼기
      * - 같은 단어가 연달아 나오면 하나만
      */
     fun cleanPlace(place: String): List<String> {
-        val t = place.replace(Regex("[.,·]"), " ")
+        val t = place
+            .replace(Regex("""/\s*(카드|현금|계좌|선결제)\S*"""), " ")
+            .replace(Regex("""(^|\s)\d{1,2}\)"""), " ")
+            .replace(Regex("[.,·]"), " ")
             .replace(Regex("[^가-힣0-9A-Za-z\\s-]"), " ")
-        val skip = Regex("""^(\d+-?\d*(동|호|층)|근처|-+)$""")
-        val words = t.split(Regex("\\s+")).filter { it.isNotBlank() && !skip.matches(it) }
-        return words.filterIndexed { i, w -> i == 0 || w != words[i - 1] }
+        val skip = Regex("""^(\d+-?\d*(동|호|층)|근처|부근|-+|카드|현금|카드결제|현금결제)$""")
+        val road = Regex("""^([가-힣0-9]*[가-힣](?:로|길))(\d+(?:-\d+)?)$""")
+        val near = Regex("""(부근|근처|건너편|맞은편)$""")
+        val out = mutableListOf<String>()
+        for (raw in t.split(Regex("\\s+"))) {
+            if (raw.isBlank() || skip.matches(raw)) continue
+            var w = raw
+            near.find(w)?.let { m -> if (m.range.first >= 2) w = w.substring(0, m.range.first) }
+            val r = road.find(w)
+            if (r != null) { out += r.groupValues[1]; out += r.groupValues[2]; continue }
+            // 혼자 남은 1~2자리 숫자 (목록 번호, "(0~" 같은 찌꺼기). 도로명 뒤 건물 번호는 위에서 처리
+            if (Regex("""^\d{1,2}$""").matches(w) && out.lastOrNull()?.let { it.endsWith("로") || it.endsWith("길") } != true) continue
+            out += w
+        }
+        return out.filterIndexed { i, w -> i == 0 || w != out[i - 1] }
     }
 
-    /** 지역 이름 (시·군·구·읍·면·동·리·가) */
-    private val regionWord = Regex("""^[가-힣]{1,6}(특별시|광역시|시|군|구|읍|면|동|리|가)$""")
+    /** 지역 이름 (시·군·구·읍·면·동·리·가). "금호동3가"처럼 숫자가 들어간 것도 */
+    private val regionWord = Regex("""^[가-힣][가-힣0-9]{0,5}(특별시|광역시|시|군|구|읍|면|동|리|가)$""")
+    private val numberish = Regex("""^\d+(-\d+)?$""")
+
+    /** 붙여 쓴 건물 이름 앞의 지역 이름 떼기: 의정부장암동더샵포레스트 → 더샵포레스트 (시 이름이 붙은 경우만) */
+    private fun stripRegionPrefix(word: String, region: List<String>): String {
+        var s = word
+        var cut = false
+        for (r in region) {
+            val stem = Regex("(특별시|광역시|시|군)$").replace(r, "")
+            if (stem != r && stem.length >= 2 && s.startsWith(stem) && s.length - stem.length >= 2) { s = s.removePrefix(stem); cut = true }
+        }
+        if (cut) for (r in region) if (s.startsWith(r) && s.length - r.length >= 2) s = s.removePrefix(r)
+        return s
+    }
 
     /**
      * 지도 검색어 순서:
@@ -233,9 +263,31 @@ object DetailParser {
         val out = LinkedHashSet<String>()
         out += words.joinToString(" ")
         val region = words.takeWhile { regionWord.matches(it) }
-        val building = words.lastOrNull { !regionWord.matches(it) && !it.all { c -> c.isDigit() || c == '-' } }
-        if (region.isNotEmpty() && building != null) out += (region + building).joinToString(" ")
+        val building = words.lastOrNull { !regionWord.matches(it) && !numberish.matches(it) }
+        if (region.isNotEmpty() && building != null) out += (region + stripRegionPrefix(building, region)).joinToString(" ")
         for (n in words.size - 1 downTo 1) out += words.take(n).joinToString(" ")
         return out.toList()
+    }
+
+    /**
+     * 번지·도로명 주소면 주소 → 위치 검색용 글자 (지역 + 도로명 + 번호). 번호가 없으면 null.
+     *  "도봉구 쌍문동 쌍문동494-22.청한가든빌라/카드" → "도봉구 쌍문동 494-22"
+     *  "고양시 일산동구 마두동 일산마두동 강촌로191" → "고양시 일산동구 마두동 강촌로 191"
+     */
+    fun addressQuery(place: String): String? {
+        val merged = Regex("""^([가-힣][가-힣0-9]*(?:동|가|리))(\d+(?:-\d+)?)$""")
+        val out = mutableListOf<String>()
+        var hasNumber = false
+        for (w in cleanPlace(place)) {
+            val m = merged.find(w)
+            val parts = if (m != null) listOf(m.groupValues[1], m.groupValues[2]) else listOf(w)
+            for (p in parts) when {
+                numberish.matches(p) -> { if (out.isNotEmpty() && !hasNumber) { out += p; hasNumber = true } }
+                hasNumber -> {}
+                regionWord.matches(p) -> if (out.none { it == p || p.endsWith(it) }) out += p // 시흥은행동·일산마두동 같은 겹친 이름 빼기
+                p.endsWith("로") || p.endsWith("길") -> out += p
+            }
+        }
+        return if (hasNumber && out.size >= 2) out.joinToString(" ") else null
     }
 }
